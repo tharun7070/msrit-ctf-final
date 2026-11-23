@@ -1,0 +1,3 @@
+FLEECA security-audit lab; only the local CLI is in scope.
+Run: python bank_gateway.py --token "$(cat guest.token)"
+The provided guest token has no admin privileges. Locate and demonstrate the missing trust check without a real server.

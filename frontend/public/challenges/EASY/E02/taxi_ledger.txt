@@ -1,0 +1,9 @@
+LOS SANTOS TAXI SERVICE / 03:45 CUTOVER
+Dispatcher memo: The MIDNIGHT taxi carries 4 road wheels plus 1 spare.
+The route's wheel tally is the forward shift used by its driver.
+
+MORNING | FDVK SLFNXS RQ ROBPSLF
+MIDNIGHT | DTZW IWTU HTIJ NX KQFL{ansjbtti_wty_xmnky}
+SUNRISE | FAXWP YJBBNWPNA
+
+Case sensitive punctuation is preserved; rotate only letters.

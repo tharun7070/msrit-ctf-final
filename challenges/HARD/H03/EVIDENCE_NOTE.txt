@@ -1,0 +1,3 @@
+CASE 144. The camera file is a valid PNG but imaging software may discard trailing evidence.
+Investigators should never assume one file means one format.
+All evidence is embedded locally; no internet lookup required.

@@ -1,0 +1,98 @@
+{
+  "challenge_count": 15,
+  "all_pass": true,
+  "file_integrity": "all attachments exist and nonempty",
+  "plaintext_leak_scan": "no actual correct flag appears verbatim in participant files",
+  "cases": [
+    {
+      "id": "E01",
+      "result": "PASS",
+      "derived_flag": "FLAG{vespucci_pager_27}",
+      "method": "CSV filter + numeric sort + Base64 decode"
+    },
+    {
+      "id": "E02",
+      "result": "PASS",
+      "derived_flag": "FLAG{vinewood_rot_shift}",
+      "method": "MIDNIGHT route Caesar -5"
+    },
+    {
+      "id": "E03",
+      "result": "PASS",
+      "derived_flag": "FLAG{hidden_stash_sandy}",
+      "method": "ZIP hidden dotfile + hex conversion"
+    },
+    {
+      "id": "E04",
+      "result": "PASS",
+      "derived_flag": "FLAG{camera_metadata_trail}",
+      "method": "Pillow PNG metadata + Base32 decode"
+    },
+    {
+      "id": "E05",
+      "result": "PASS",
+      "derived_flag": "FLAG{zip_in_plain_sight}",
+      "method": "ZIP signature sniff + verified receipt hex"
+    },
+    {
+      "id": "M01",
+      "result": "PASS",
+      "derived_flag": "FLAG{fleeca_query_bypass}",
+      "method": "denial negative check + live local SQLi bypass"
+    },
+    {
+      "id": "M02",
+      "result": "PASS",
+      "derived_flag": "FLAG{lsia_airwave_cargo}",
+      "method": "22 validated IP/TCP frames + LS-447 HTTP headers"
+    },
+    {
+      "id": "M03",
+      "result": "PASS",
+      "derived_flag": "FLAG{lspd_logbook_rebuilt}",
+      "method": "correlate 6 ordered case-clerk events in 507 lines"
+    },
+    {
+      "id": "M04",
+      "result": "PASS",
+      "derived_flag": "FLAG{xor_radio_convoy}",
+      "method": "route-ordered XOR key + repeating decryption"
+    },
+    {
+      "id": "M05",
+      "result": "PASS",
+      "derived_flag": "FLAG{debug_the_dispatch}",
+      "method": "integer sort + include last + restore URL-safe Base64 padding"
+    },
+    {
+      "id": "H01",
+      "result": "PASS",
+      "derived_flag": "FLAG{zancudo_gate_unlocked}",
+      "method": "ELF disassembly target bytes, inverse position-XOR, execution"
+    },
+    {
+      "id": "H02",
+      "result": "PASS",
+      "derived_flag": "FLAG{2389a89b_378fbf1c}",
+      "method": "evaluate 70-node DAG + SHA256 suffix"
+    },
+    {
+      "id": "H03",
+      "result": "PASS",
+      "derived_flag": "FLAG{impound_layers_found}",
+      "method": "PNG ZIP polyglot -> gzip -> tar -> ASCII85 -> zlib"
+    },
+    {
+      "id": "H04",
+      "result": "PASS",
+      "derived_flag": "FLAG{unsigned_admin_trust}",
+      "method": "guest denial + alg=none unsigned role escalation"
+    },
+    {
+      "id": "H05",
+      "result": "PASS",
+      "derived_flag": "FLAG{los_santos_final_escape}",
+      "method": "unique valid car + SHA256 key + ASCII85/zlib/XOR"
+    }
+  ]
+}

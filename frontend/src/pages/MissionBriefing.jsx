@@ -1,0 +1,555 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { getChallenge, getChallengeFiles, getChallengeHints, submitFlag, unlockHint, getHintContent, getMySolves, getMyTeam, getTeamSolves } from '../services/ctfd';
+import { getChallengeMeta, ALL_15_CHALLENGES, LEVEL_COLORS } from '../data/challengeMeta';
+import { useAuth } from '../hooks/useAuth';
+import MissionPassedOverlay from '../components/MissionPassedOverlay';
+import NavBar from '../sections/NavBar';
+
+export default function MissionBriefing() {
+  const { id } = useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  // Instant sync resolution so the briefing renders in 0ms without waiting for offline timeouts
+  const initialChallenge = ALL_15_CHALLENGES.find(
+    (c) =>
+      String(c.id) === String(id) ||
+      String(c.ctfd_id) === String(id) ||
+      c.fta_id?.toLowerCase() === String(id).toLowerCase()
+  ) || ALL_15_CHALLENGES[0];
+
+  const [challenge, setChallenge] = useState(initialChallenge);
+  const [files, setFiles] = useState(
+    (initialChallenge.files || []).map((f) => ({
+      name: f,
+      location: `/challenges/${(initialChallenge.level || 'EASY').toUpperCase()}/${initialChallenge.fta_id}/${f}`,
+    }))
+  );
+  const [hints, setHints] = useState(
+    (initialChallenge.hints || []).map((h, i) => ({ id: i + 1, cost: 0, content: h }))
+  );
+  const [unlockedHints, setUnlockedHints] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Submission state
+  const [flag, setFlag] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState(null); // 'correct' | 'incorrect' | 'already_solved'
+  const [resultMessage, setResultMessage] = useState('');
+  const [showPassedOverlay, setShowPassedOverlay] = useState(false);
+  const [isSolved, setIsSolved] = useState(false);
+
+  // Active tab: 'briefing' | 'evidence' | 'hints'
+  const [activeTab, setActiveTab] = useState('briefing');
+
+  useEffect(() => {
+    async function loadData() {
+      if (!challenge) setLoading(true);
+      setError(null);
+
+      let cData = null;
+      let fData = [];
+      let hData = [];
+
+      try {
+        const [cRes, fRes, hRes] = await Promise.all([
+          getChallenge(id).catch(() => null),
+          getChallengeFiles(id).catch(() => []),
+          getChallengeHints(id).catch(() => []),
+        ]);
+        cData = cRes;
+        fData = fRes || [];
+        hData = hRes || [];
+      } catch (err) {
+        // Continue to fallback
+      }
+
+      // If backend call returned null/empty, resolve from our canonical 15 challenges
+      if (!cData || !cData.name) {
+        cData = ALL_15_CHALLENGES.find(
+          (c) =>
+            String(c.id) === String(id) ||
+            String(c.ctfd_id) === String(id) ||
+            c.fta_id?.toLowerCase() === String(id).toLowerCase()
+        ) || ALL_15_CHALLENGES[0];
+      }
+
+      const meta = getChallengeMeta(cData.name || cData.fta_id || id) || {};
+      const lvl = meta.level || cData.level || (cData.value === 50 ? 'Easy' : cData.value === 100 ? 'Medium' : 'Hard');
+      const ftaId = meta.fta_id || cData.fta_id || (cData.name ? cData.name.slice(0, 3) : 'E01');
+      const act = meta.act || cData.act || (lvl === 'Easy' ? 'The Street Job' : lvl === 'Medium' ? 'The Big Heist' : 'The Final Getaway');
+
+      const fullChallenge = {
+        ...meta,
+        ...cData,
+        id: cData.id || id,
+        fta_id: ftaId,
+        level: lvl,
+        act,
+        reward: meta.reward || cData.value || cData.reward || (lvl === 'Easy' ? 50 : lvl === 'Medium' ? 100 : 160),
+        location: meta.location || cData.location || 'Los Santos Underground',
+        description: meta.briefing || cData.description || cData.briefing,
+        briefing: meta.briefing || cData.briefing || cData.description,
+        objective: meta.objective || cData.objective || 'Submit recovered flag to CTFd in FLAG{...} format.',
+      };
+
+      // Ensure files array has downloadable locations
+      const challengeFiles = (fData.length > 0 ? fData : (meta.files || cData.files || [])).map((f) => {
+        if (typeof f === 'string') {
+          return {
+            name: f,
+            location: `/challenges/${lvl.toUpperCase()}/${ftaId}/${f}`,
+          };
+        }
+        return {
+          name: f.name || f.location?.split('/').pop() || 'evidence_file',
+          location: f.location || `/challenges/${lvl.toUpperCase()}/${ftaId}/${f.name}`,
+        };
+      });
+
+      // Ensure hints array
+      const rawHints = hData.length > 0 ? hData : (meta.hints || cData.hints || []);
+      const challengeHints = rawHints.map((h, i) => {
+        if (typeof h === 'string') {
+          return { id: i + 1, cost: 0, content: h };
+        }
+        return h;
+      });
+
+      setChallenge(fullChallenge);
+      setFiles(challengeFiles);
+      setHints(challengeHints);
+
+      // Check if already solved
+      try {
+        const team = await getMyTeam().catch(() => null);
+        let solves = [];
+        if (team?.id) {
+          solves = await getTeamSolves(team.id).catch(() => []);
+        } else {
+          solves = await getMySolves().catch(() => []);
+        }
+        const solved = solves.some(
+          (s) => String(s.challenge_id) === String(id) || String(s.challenge_id) === String(fullChallenge.id)
+        );
+        setIsSolved(solved);
+      } catch (e) {
+        // ignore offline solve check
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadData();
+  }, [id]);
+
+  const handleSubmitFlag = async (e) => {
+    e.preventDefault();
+    if (!flag.trim()) return;
+
+    setSubmitting(true);
+    setSubmissionResult(null);
+    setResultMessage('');
+
+    try {
+      const resp = await submitFlag(id, flag.trim());
+      const status = resp?.data?.status;
+      const message = resp?.data?.message || '';
+
+      if (status === 'correct') {
+        setSubmissionResult('correct');
+        setIsSolved(true);
+        setShowPassedOverlay(true);
+        setFlag('');
+      } else if (status === 'already_solved') {
+        setSubmissionResult('already_solved');
+        setIsSolved(true);
+        setResultMessage(message || 'This mission was already cleared by your crew.');
+      } else {
+        setSubmissionResult('incorrect');
+        setResultMessage(message || 'MISSION FAILED — INCORRECT FLAG RECEIVED');
+      }
+    } catch (err) {
+      setSubmissionResult('error');
+      setResultMessage(err.response?.data?.errors?.join(', ') || 'Submission error. Check network connection.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUnlockHint = async (hint) => {
+    if (hint.cost > 0) {
+      const conf = window.confirm(`Unlocking this intel costs $${hint.cost}. Confirm?`);
+      if (!conf) return;
+    }
+    try {
+      await unlockHint(hint.id);
+      const content = await getHintContent(hint.id);
+      setUnlockedHints(prev => ({ ...prev, [hint.id]: content?.content || 'Intel unlocked' }));
+    } catch (err) {
+      alert('Failed to unlock hint: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  if (loading && !challenge) {
+    return (
+      <div className="app-bg min-h-screen text-white flex-center flex-col gap-4">
+        <NavBar />
+        <div className="spinner" />
+        <span className="font-mono text-sm text-gray-400 uppercase tracking-widest">
+          DECRYPTING MISSION DOSSIER...
+        </span>
+      </div>
+    );
+  }
+
+  if (error || !challenge) {
+    return (
+      <div className="app-bg min-h-screen text-white p-8 pt-28">
+        <NavBar />
+        <div className="max-w-md mx-auto hud-panel p-6 text-center rounded">
+          <p className="text-red-400 font-mono mb-4">⚠ {error || 'Target not found in dispatch.'}</p>
+          <Link to="/missions" className="btn-outline-heist py-2 px-4 text-xs font-mono">
+            ← RETURN TO MISSION BOARD
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const levelColor = LEVEL_COLORS[challenge.level] || LEVEL_COLORS.Easy;
+  const cashAmount = challenge.reward || challenge.value || 50;
+
+  return (
+    <div className="app-bg min-h-screen text-white pb-20">
+      <NavBar />
+
+      {/* MISSION PASSED OVERLAY */}
+      {showPassedOverlay && (
+        <MissionPassedOverlay
+          mission={challenge.name}
+          cash={cashAmount}
+          onClose={() => setShowPassedOverlay(false)}
+        />
+      )}
+
+      <main className="max-w-7xl mx-auto pt-28 px-4 sm:px-6 lg:px-8 space-y-8">
+        {/* Breadcrumb & Navigation */}
+        <div className="flex justify-between items-center text-xs font-mono text-gray-400">
+          <Link to="/missions" className="hover:text-pink transition">
+            ← MISSION BOARD
+          </Link>
+          <span className="text-gray-600">DOSSIER // {challenge.fta_id || challenge.id}</span>
+        </div>
+
+        {/* Mission Banner Header */}
+        <div className="hud-panel p-6 rounded-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-l-4" style={{ borderLeftColor: levelColor.text }}>
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <span 
+                className="px-2 py-0.5 rounded text-xs font-mono font-bold uppercase"
+                style={{ background: levelColor.bg, color: levelColor.text }}
+              >
+                {challenge.level} // {challenge.category}
+              </span>
+              <span className="text-xs font-mono text-gray-400">📍 {challenge.location || 'Los Santos'}</span>
+            </div>
+
+            <h1 className="text-3xl md:text-4xl font-long uppercase text-white">
+              {challenge.name}
+            </h1>
+
+            <p className="text-sm font-mono text-gray-400 mt-1">
+              FOCUS: {challenge.topic || challenge.category}
+            </p>
+          </div>
+
+          <div className="flex flex-col md:items-end gap-2">
+            <span className="text-xs font-mono uppercase text-gray-400">BOUNTY REWARD</span>
+            <span className="text-3xl md:text-4xl font-long text-cash">
+              ${cashAmount}
+            </span>
+            {isSolved ? (
+              <span className="px-3 py-1 rounded bg-cash/20 text-cash text-xs font-mono font-bold">
+                ✓ MISSION CLEARED
+              </span>
+            ) : (
+              <span className="px-3 py-1 rounded bg-pink/20 text-pink text-xs font-mono font-bold">
+                ● ACTIVE CONTRACT
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Two Column Layout: Intel vs Submission */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Column (2 Cols): Intel, Evidence, Hints */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Tabs */}
+            <div className="flex border-b border-white/10 gap-4">
+              <button
+                onClick={() => setActiveTab('briefing')}
+                className={`pb-3 text-sm font-mono font-bold uppercase tracking-wider cursor-pointer border-b-2 transition ${
+                  activeTab === 'briefing'
+                    ? 'border-pink text-pink'
+                    : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+              >
+                MISSION BRIEFING
+              </button>
+
+              <button
+                onClick={() => setActiveTab('evidence')}
+                className={`pb-3 text-sm font-mono font-bold uppercase tracking-wider cursor-pointer border-b-2 transition ${
+                  activeTab === 'evidence'
+                    ? 'border-pink text-pink'
+                    : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+              >
+                EVIDENCE FILES ({files.length || challenge.files?.length || 0})
+              </button>
+
+              <button
+                onClick={() => setActiveTab('hints')}
+                className={`pb-3 text-sm font-mono font-bold uppercase tracking-wider cursor-pointer border-b-2 transition ${
+                  activeTab === 'hints'
+                    ? 'border-pink text-pink'
+                    : 'border-transparent text-gray-400 hover:text-white'
+                }`}
+              >
+                TACTICAL INTEL ({hints.length || challenge.hints?.length || 0})
+              </button>
+            </div>
+
+            {/* Tab: Briefing */}
+            {activeTab === 'briefing' && (
+              <div className="hud-panel p-6 rounded-lg space-y-4">
+                <h3 className="text-sm font-mono uppercase text-gray-400 tracking-wider">
+                  SITUATION BRIEFING
+                </h3>
+                <div className="prose prose-invert max-w-none text-gray-200 leading-relaxed font-sans text-base whitespace-pre-line">
+                  {challenge.description || challenge.briefing || 'No public briefing available.'}
+                </div>
+              </div>
+            )}
+
+            {/* Tab: Evidence Files */}
+            {activeTab === 'evidence' && (
+              <div className="hud-panel p-6 rounded-lg space-y-4">
+                <h3 className="text-sm font-mono uppercase text-gray-400 tracking-wider">
+                  DOWNLOADABLE EVIDENCE ARTIFACTS
+                </h3>
+                <p className="text-xs font-mono text-gray-400">
+                  Analyze all files inside an isolated environment. All files are authorized competition evidence.
+                </p>
+
+                <div className="space-y-3 mt-4">
+                  {/* Real CTFd files if present */}
+                  {files.length > 0 ? (
+                    files.map((file, idx) => (
+                      <div 
+                        key={idx}
+                        className="p-4 bg-white/5 border border-white/10 rounded flex justify-between items-center hover:border-pink/50 transition"
+                      >
+                        <div>
+                          <span className="font-mono text-sm text-white block">
+                            📦 {file.name || file}
+                          </span>
+                          <span className="text-xs text-gray-500 font-mono">ATTACHED BY DISPATCH</span>
+                        </div>
+                        <a
+                          href={file.location || `/api/v1/files/${file.id}`}
+                          download
+                          className="btn-outline-heist py-1.5 px-4 text-xs font-mono"
+                        >
+                          DOWNLOAD ↓
+                        </a>
+                      </div>
+                    ))
+                  ) : challenge.files?.length > 0 ? (
+                    challenge.files.map((fn, idx) => {
+                      const fileName = typeof fn === 'string' ? fn : fn.name;
+                      const fileLoc = typeof fn === 'string'
+                        ? `/challenges/${(challenge.level || 'EASY').toUpperCase()}/${challenge.fta_id || 'E01'}/${fn}`
+                        : fn.location;
+                      return (
+                        <div 
+                          key={idx}
+                          className="p-4 bg-white/5 border border-white/10 rounded flex justify-between items-center hover:border-pink/50 transition"
+                        >
+                          <div>
+                            <span className="font-mono text-sm text-white block">
+                              📦 {fileName}
+                            </span>
+                            <span className="text-xs text-cyan font-mono">AUTHORIZED EVIDENCE FILE</span>
+                          </div>
+                          <a
+                            href={fileLoc}
+                            download={fileName}
+                            className="btn-outline-heist py-1.5 px-4 text-xs font-mono"
+                          >
+                            DOWNLOAD ↓
+                          </a>
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <p className="text-sm text-gray-500 font-mono">No external files attached for this job.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tab: Hints */}
+            {activeTab === 'hints' && (
+              <div className="hud-panel p-6 rounded-lg space-y-4">
+                <h3 className="text-sm font-mono uppercase text-gray-400 tracking-wider">
+                  PROGRESSIVE TACTICAL HINTS
+                </h3>
+                <p className="text-xs font-mono text-gray-400">
+                  Hints do not penalize your cash earnings if configured as free by the organizer.
+                </p>
+
+                <div className="space-y-4 mt-4">
+                  {hints.length > 0 ? (
+                    hints.map((hint, index) => {
+                      const isUnlocked = unlockedHints[hint.id] || hint.content;
+                      return (
+                        <div key={hint.id} className="p-4 bg-white/5 border border-white/10 rounded">
+                          <div className="flex justify-between items-center">
+                            <span className="font-mono text-xs uppercase text-yellow font-bold">
+                              INTEL DROP #{index + 1}
+                            </span>
+                            {!isUnlocked && (
+                              <button
+                                onClick={() => handleUnlockHint(hint)}
+                                className="btn-outline-heist py-1 px-3 text-xs font-mono"
+                              >
+                                UNLOCK INTEL {hint.cost > 0 ? `($${hint.cost})` : '(FREE)'}
+                              </button>
+                            )}
+                          </div>
+                          {isUnlocked ? (
+                            <p className="text-sm text-gray-200 mt-2 font-mono bg-black/40 p-3 rounded border border-white/5">
+                              {unlockedHints[hint.id] || hint.content}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-gray-500 mt-1 italic font-mono">
+                              [CLASSIFIED] Click unlock to reveal dispatch note.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : challenge.hints?.length > 0 ? (
+                    challenge.hints.map((hText, index) => (
+                      <div key={index} className="p-4 bg-white/5 border border-white/10 rounded font-mono">
+                        <span className="text-xs uppercase text-yellow font-bold block mb-1">
+                          INTEL DROP #{index + 1}
+                        </span>
+                        <p className="text-sm text-gray-200">{hText}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-500 font-mono">No tactical hints logged for this target.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Column (1 Col): Flag Submission Terminal */}
+          <div className="space-y-6">
+            <div className="hud-panel p-6 rounded-lg border border-pink/30 space-y-4 shadow-xl">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-pink animate-ping" />
+                <h3 className="text-lg font-long uppercase text-white tracking-wider">
+                  SUBMIT RECOVERED FLAG
+                </h3>
+              </div>
+
+              <p className="text-xs font-mono text-gray-400">
+                Submit exact flag format: <span className="text-pink font-bold">FLAG&#123;...&#125;</span>
+              </p>
+
+              {/* Status messages */}
+              {submissionResult === 'incorrect' && (
+                <div className="p-3 bg-red-950/80 border border-red-500/50 text-red-200 text-xs font-mono rounded">
+                  ✕ {resultMessage}
+                </div>
+              )}
+
+              {submissionResult === 'already_solved' && (
+                <div className="p-3 bg-yellow-950/80 border border-yellow-500/50 text-yellow-200 text-xs font-mono rounded">
+                  ⚠ {resultMessage}
+                </div>
+              )}
+
+              {submissionResult === 'error' && (
+                <div className="p-3 bg-red-950/80 border border-red-500/50 text-red-200 text-xs font-mono rounded">
+                  ⚠ {resultMessage}
+                </div>
+              )}
+
+              {!user ? (
+                <div className="p-4 bg-white/5 border border-pink/30 rounded text-center space-y-3">
+                  <span className="text-xs font-mono uppercase text-gray-400 block">
+                    AUTHENTICATION REQUIRED TO SUBMIT
+                  </span>
+                  <Link to="/login" className="btn-heist block text-xs py-2.5 px-4 font-bold">
+                    LOGIN TO TRANSMIT PROOF
+                  </Link>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitFlag} className="space-y-4">
+                  <div>
+                    <input
+                      type="text"
+                      value={flag}
+                      onChange={(e) => setFlag(e.target.value)}
+                      placeholder="FLAG{...}"
+                      disabled={submitting}
+                      className="heist-input rounded font-mono uppercase tracking-wider"
+                      required
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitting || !flag.trim()}
+                    className="btn-heist w-full py-3.5 flex-center gap-2 cursor-pointer disabled:opacity-50 font-bold"
+                  >
+                    {submitting ? (
+                      <div className="spinner !size-5 !border-2" />
+                    ) : (
+                      '▶ TRANSMIT PROOF'
+                    )}
+                  </button>
+                </form>
+              )}
+
+              <div className="pt-4 border-t border-white/10 text-xs font-mono text-gray-500 space-y-1">
+                <p>• Verified directly against CTFd secure validator</p>
+                <p>• Score credited immediately on correct transmission</p>
+                <p>• Duplicate solves receive no additional cash</p>
+              </div>
+            </div>
+
+            {/* Quick Workbench Tool Link */}
+            <div className="hud-panel p-5 rounded-lg text-center space-y-2">
+              <span className="text-xs font-mono text-gray-400 uppercase">STUCK ON CIPHER OR ENCODING?</span>
+              <Link 
+                to="/intel"
+                className="btn-outline-heist block py-2 text-xs font-mono font-bold"
+              >
+                ⚡ OPEN LESTER'S WORKBENCH
+              </Link>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}

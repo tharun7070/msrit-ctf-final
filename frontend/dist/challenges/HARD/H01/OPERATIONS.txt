@@ -1,0 +1,4 @@
+ZANCUDO TERMINAL / FICTIONAL OFFLINE CHALLENGE
+This is a 64-bit Linux ELF. No network or special permissions required.
+Run: chmod +x zancudo_gate ; ./zancudo_gate <12-character authorization code>
+Useful local tools: file, objdump -d, strings, Ghidra (optional).

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 224 150">
+  <defs>
+    <style>
+      .st0 { fill: #fff; }
+    </style>
+  </defs>
+  <g id="FTA_Stack">
+    <path class="st0" d="M343 700V594H167V439H333V333H167V0H50V700Z" transform="translate(70.57, 50.00) scale(0.05143, -0.05143)" />
+    <path class="st0" d="M167 700V106H330V0H50V700Z" transform="translate(89.86, 50.00) scale(0.05143, -0.05143)" />
+    <path class="st0" d="M411 0H302L281 103H139L118 0H10L176 702H246ZM210 451 158 195H262Z" transform="translate(108.12, 50.00) scale(0.05143, -0.05143)" />
+    <path class="st0" d="M413 481 296 469V519Q296 565 281.0 586.0Q266 607 230 607Q195 607 179.5 586.0Q164 565 164 519V181Q164 136 180.5 115.0Q197 94 233 94Q269 94 284.5 115.0Q300 136 300 181V281H225V378H413V185Q413 88 367.0 38.0Q321 -12 230 -12Q139 -12 93.5 38.0Q48 88 48 185V515Q48 712 230 712Q413 712 413 515Z" transform="translate(129.77, 50.00) scale(0.05143, -0.05143)" />
+    <path class="st0" d="M368 700V594H254V0H137V594H23V700Z" transform="translate(66.17, 85.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M305 414V700H422V0H305V308H167V0H50V700H167V414Z" transform="translate(84.00, 85.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M343 700V594H167V444H333V338H167V106H343V0H50V700Z" transform="translate(105.58, 85.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M343 700V594H167V439H333V333H167V0H50V700Z" transform="translate(122.86, 85.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M368 700V594H254V0H137V594H23V700Z" transform="translate(140.00, 85.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M411 0H302L281 103H139L118 0H10L176 702H246ZM210 451 158 195H262Z" transform="translate(72.32, 120.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M50 185V700H167V181Q167 137 182.5 116.5Q198 96 233 96Q268 96 283.5 116.5Q299 137 299 181V700H415V185Q415 88 369.5 38.0Q324 -12 233 -12Q142 -12 96.0 38.0Q50 88 50 185Z" transform="translate(91.57, 120.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M368 700V594H254V0H137V594H23V700Z" transform="translate(112.82, 120.00) scale(0.04571, -0.04571)" />
+    <path class="st0" d="M48 185V515Q48 712 230 712Q413 712 413 515V185Q413 88 367.0 38.0Q321 -12 230 -12Q139 -12 93.5 38.0Q48 88 48 185ZM296 181V519Q296 565 281.0 586.0Q266 607 230 607Q195 607 179.5 586.0Q164 565 164 519V181Q164 136 179.5 115.0Q195 94 230 94Q266 94 281.0 114.5Q296 135 296 181Z" transform="translate(130.65, 120.00) scale(0.04571, -0.04571)" />
+  </g>
+</svg>

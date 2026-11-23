@@ -1,0 +1,6 @@
+car,plate,terminal,wanted,fuel_km,route_km,clearance
+Infernus,RACE-999,BEACH,1,450,220,YES
+Sentinel,LSX-417,DESERT,0,410,350,YES
+Sabre,ALT-821,DOCK,0,180,230,YES
+Banshee,HIDE-100,HARBOR,0,380,200,NO
+Kuruma,CIV-700,TOWER,1,600,100,NO

@@ -1,0 +1,333 @@
+{
+  "event": "FLAG THEFT AUTO",
+  "challenges": [
+    {
+      "id": "E01",
+      "name": "E01 | Lester’s Pager Panic",
+      "level": "Easy",
+      "category": "Cryptography",
+      "location": "Lester’s Hideout",
+      "topic": "Base64 decoding",
+      "points": 50,
+      "description": "# E01 · Lester’s Pager Panic\n\n**Level:** Easy · **Points:** 50 · **Category:** Cryptography  \n**Location:** Lester’s Hideout · **Focus:** Base64 decoding\n\n## Mission briefing\nA courier scattered the dispatch into numbered transmissions. Reassemble the real courier packets by sequence and decode the Base64 message. Ignore broadcast noise.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `dispatch.csv`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{vespucci_pager_27}",
+      "hints": [
+        "The courier column identifies actual orders, not public broadcasts.",
+        "Order courier packets by numeric sequence before decoding.",
+        "Each payload is independently Base64-encoded; decode each and concatenate."
+      ],
+      "files": [
+        "dispatch.csv"
+      ],
+      "directory": "PARTICIPANT/EASY/E01",
+      "solution_outline": "Filter courier=YES, order seq as numbers, Base64-decode each payload and join."
+    },
+    {
+      "id": "E02",
+      "name": "E02 | Vinewood Shift Change",
+      "level": "Easy",
+      "category": "Cryptography",
+      "location": "Vinewood Boulevard",
+      "topic": "Caesar cipher",
+      "points": 50,
+      "description": "# E02 · Vinewood Shift Change\n\n**Level:** Easy · **Points:** 50 · **Category:** Cryptography  \n**Location:** Vinewood Boulevard · **Focus:** Caesar cipher\n\n## Mission briefing\nA taxi ledger contains three intercepted messages. The wanted driver used the route marked MIDNIGHT, with a wheel count and a spare wheel hint. Recover that message using a Caesar rotation.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `taxi_ledger.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{vinewood_rot_shift}",
+      "hints": [
+        "Only the MIDNIGHT route is part of the job.",
+        "Four road wheels plus the one spare tell you the rotation.",
+        "Undo a shift of five letters on the MIDNIGHT ciphertext."
+      ],
+      "files": [
+        "taxi_ledger.txt"
+      ],
+      "directory": "PARTICIPANT/EASY/E02",
+      "solution_outline": "Identify the MIDNIGHT line, shift alphabetic letters back five positions."
+    },
+    {
+      "id": "E03",
+      "name": "E03 | Sandy Shores Hidden Stash",
+      "level": "Easy",
+      "category": "Linux forensics",
+      "location": "Sandy Shores",
+      "topic": "Hidden files",
+      "points": 50,
+      "description": "# E03 · Sandy Shores Hidden Stash\n\n**Level:** Easy · **Points:** 50 · **Category:** Linux forensics  \n**Location:** Sandy Shores · **Focus:** Hidden files\n\n## Mission briefing\nA zipped safehouse folder looks empty except for innocent receipts. Lester says the valuable manifest is concealed from ordinary directory listings. Extract it and reconstruct the drop code.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `safehouse.zip`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{hidden_stash_sandy}",
+      "hints": [
+        "Use unzip; then inspect the extracted directory, not the ZIP listing alone.",
+        "Try ls -la inside the safehouse folder.",
+        "The dotfile contains hex bytes; use xxd -r -p or bytes.fromhex()."
+      ],
+      "files": [
+        "safehouse.zip"
+      ],
+      "directory": "PARTICIPANT/EASY/E03",
+      "solution_outline": "unzip safehouse.zip; find .drop_manifest; use xxd -r -p on its hex line."
+    },
+    {
+      "id": "E04",
+      "name": "E04 | Del Perro Camera Roll",
+      "level": "Easy",
+      "category": "Digital forensics",
+      "location": "Del Perro Pier",
+      "topic": "PNG metadata",
+      "points": 50,
+      "description": "# E04 · Del Perro Camera Roll\n\n**Level:** Easy · **Points:** 50 · **Category:** Digital forensics  \n**Location:** Del Perro Pier · **Focus:** PNG metadata\n\n## Mission briefing\nA security-camera still has an unhelpful picture, but the technician left a dispatch string in PNG metadata. Inspect metadata fields rather than guessing pixels.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `pier_camera.png`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{camera_metadata_trail}",
+      "hints": [
+        "PNG text metadata can carry notes separate from pixel data.",
+        "Inspect via exiftool, identify -verbose, or Pillow image.info.",
+        "Decode the Base32 string stored under dispatch_note."
+      ],
+      "files": [
+        "pier_camera.png"
+      ],
+      "directory": "PARTICIPANT/EASY/E04",
+      "solution_outline": "Read PNG dispatch_note tEXt metadata, Base32 decode."
+    },
+    {
+      "id": "E05",
+      "name": "E05 | Wrong Extension, Right Exit",
+      "level": "Easy",
+      "category": "File forensics",
+      "location": "Los Santos Customs",
+      "topic": "File signatures",
+      "points": 50,
+      "description": "# E05 · Wrong Extension, Right Exit\n\n**Level:** Easy · **Points:** 50 · **Category:** File forensics  \n**Location:** Los Santos Customs · **Focus:** File signatures\n\n## Mission briefing\nAn informant labeled a cargo archive as a JPEG to get it past a casual inspection. Identify what it actually is, open it, and read the hexadecimal shipment code.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `customs_camera.jpg`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{zip_in_plain_sight}",
+      "hints": [
+        "File extensions can lie. Check the first bytes with file or xxd.",
+        "The bytes start with a ZIP signature; unzip the archive.",
+        "The verified receipt has a hex-encoded message. Decode it."
+      ],
+      "files": [
+        "customs_camera.jpg"
+      ],
+      "directory": "PARTICIPANT/EASY/E05",
+      "solution_outline": "file customs_camera.jpg; unzip; decode receipt hex."
+    },
+    {
+      "id": "M01",
+      "name": "M01 | Fleeca Vault Glitch",
+      "level": "Medium",
+      "category": "Web security",
+      "location": "Fleeca Bank",
+      "topic": "SQL injection simulation",
+      "points": 100,
+      "description": "# M01 · Fleeca Vault Glitch\n\n**Level:** Medium · **Points:** 100 · **Category:** Web security  \n**Location:** Fleeca Bank · **Focus:** SQL injection simulation\n\n## Mission briefing\nFleeca’s offline kiosk accepts a locker owner and PIN. An old SQL query incorrectly trusts the owner field. Use this **local-only** simulation to retrieve the audit record.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `fleeca_kiosk.py`\n- `fleeca.db`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{fleeca_query_bypass}",
+      "hints": [
+        "Read the SQL query built inside fleeca_kiosk.py.",
+        "A quote can break out of the owner string; -- starts a SQLite comment.",
+        "Try an always-true condition in the owner field and a disposable PIN."
+      ],
+      "files": [
+        "fleeca_kiosk.py",
+        "fleeca.db"
+      ],
+      "directory": "PARTICIPANT/MEDIUM/M01",
+      "solution_outline": "Run python fleeca_kiosk.py, owner: ' OR 1=1 -- ; PIN anything."
+    },
+    {
+      "id": "M02",
+      "name": "M02 | Airport Ghost Flight",
+      "level": "Medium",
+      "category": "Network forensics",
+      "location": "Los Santos International Airport",
+      "topic": "HTTP / PCAP",
+      "points": 100,
+      "description": "# M02 · Airport Ghost Flight\n\n**Level:** Medium · **Points:** 100 · **Category:** Network forensics  \n**Location:** Los Santos International Airport · **Focus:** HTTP / PCAP\n\n## Mission briefing\nA capture from a fictional airport LAN contains mixed flight dispatches. Follow the HTTP requests for flight LS-447; sort chunks and decode its cargo header.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `airport_dispatch.pcap`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{lsia_airwave_cargo}",
+      "hints": [
+        "All traffic is unencrypted HTTP inside the provided capture.",
+        "Filter requests on X-Flight: LS-447, then sort X-Chunk numerically.",
+        "Each X-Cargo header is Base64 for one chunk of the answer."
+      ],
+      "files": [
+        "airport_dispatch.pcap"
+      ],
+      "directory": "PARTICIPANT/MEDIUM/M02",
+      "solution_outline": "Wireshark http filter X-Flight LS-447; order X-Chunk and Base64 decode X-Cargo."
+    },
+    {
+      "id": "M03",
+      "name": "M03 | LSPD Midnight Audit",
+      "level": "Medium",
+      "category": "Log forensics",
+      "location": "Los Santos Police Department",
+      "topic": "Event correlation",
+      "points": 100,
+      "description": "# M03 · LSPD Midnight Audit\n\n**Level:** Medium · **Points:** 100 · **Category:** Log forensics  \n**Location:** Los Santos Police Department · **Focus:** Event correlation\n\n## Mission briefing\nLSPD recovered an auth log with hundreds of entries. Correlate case 714 success events, exclude tampered failures, and decode the sequential hexadecimal fragments.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `lspd_auth.log`\n- `CASE_BRIEF.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{lspd_logbook_rebuilt}",
+      "hints": [
+        "Correlate the case and identity markers in CASE_BRIEF.txt.",
+        "Keep case=714, host=lspd-evidence, account=case_clerk, source=FORENSIC, result=ACCEPT.",
+        "Sort part numbers before combining fraghex fields and converting hex to text."
+      ],
+      "files": [
+        "lspd_auth.log",
+        "CASE_BRIEF.txt"
+      ],
+      "directory": "PARTICIPANT/MEDIUM/M03",
+      "solution_outline": "Filter case=714 source=FORENSIC result=ACCEPT; order part; join fraghex; fromhex."
+    },
+    {
+      "id": "M04",
+      "name": "M04 | Underground XOR Radio",
+      "level": "Medium",
+      "category": "Cryptography",
+      "location": "Underground Market",
+      "topic": "Repeating-key XOR",
+      "points": 100,
+      "description": "# M04 · Underground XOR Radio\n\n**Level:** Medium · **Points:** 100 · **Category:** Cryptography  \n**Location:** Underground Market · **Focus:** Repeating-key XOR\n\n## Mission briefing\nA black-market radio packet uses a repeating XOR key. The key bytes are recorded out of order on a checkpoint sheet; restore the route order and decrypt the packet.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `radio_packet.bin`\n- `checkpoint_keys.csv`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{xor_radio_convoy}",
+      "hints": [
+        "The CSV lists numeric stop order and one hexadecimal key byte per stop.",
+        "Build the key by sorting checkpoint_keys.csv on stop, then bytes.fromhex.",
+        "XOR each ciphertext byte with key[i % len(key)]."
+      ],
+      "files": [
+        "radio_packet.bin",
+        "checkpoint_keys.csv"
+      ],
+      "directory": "PARTICIPANT/MEDIUM/M04",
+      "solution_outline": "Construct ordered hex key from CSV; repeated XOR radio_packet.bin."
+    },
+    {
+      "id": "M05",
+      "name": "M05 | Debugging the Dispatch",
+      "level": "Medium",
+      "category": "Programming",
+      "location": "Lester’s Hideout",
+      "topic": "Python debugging",
+      "points": 100,
+      "description": "# M05 · Debugging the Dispatch\n\n**Level:** Medium · **Points:** 100 · **Category:** Programming  \n**Location:** Lester’s Hideout · **Focus:** Python debugging\n\n## Mission briefing\nA courier script is intended to reconstruct a Base64 dispatch from unordered JSON packets, but three tiny defects corrupt the answer. Repair the processing logic without changing the evidence.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `broken_dispatch.py`\n- `dispatch_packets.json`\n- `README_DEBUG.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{debug_the_dispatch}",
+      "hints": [
+        "Check how sequence numbers compare when left as strings.",
+        "The dispatcher must include every packet, including the last one.",
+        "URL-safe Base64 often needs missing padding restored."
+      ],
+      "files": [
+        "broken_dispatch.py",
+        "dispatch_packets.json",
+        "README_DEBUG.txt"
+      ],
+      "directory": "PARTICIPANT/MEDIUM/M05",
+      "solution_outline": "Fix lexicographic sorting, last-item omission, and base64 padding in broken_dispatch.py."
+    },
+    {
+      "id": "H01",
+      "name": "H01 | Zancudo Deadbolt",
+      "level": "Hard",
+      "category": "Reverse engineering",
+      "location": "Fort Zancudo Military Base",
+      "topic": "ELF binary",
+      "points": 160,
+      "description": "# H01 · Zancudo Deadbolt\n\n**Level:** Hard · **Points:** 160 · **Category:** Reverse engineering  \n**Location:** Fort Zancudo Military Base · **Focus:** ELF binary\n\n## Mission briefing\nA fictional military gate terminal has no source code and asks for a twelve-character authorization phrase. Reverse its byte-check logic to unlock the terminal and recover the mission receipt.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `zancudo_gate`\n- `OPERATIONS.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{zancudo_gate_unlocked}",
+      "hints": [
+        "Use file, strings, and objdump -d (or Ghidra). This is a Linux ELF.",
+        "The passphrase loop compares each input byte after a position-dependent XOR.",
+        "Invert the XOR against the 12 comparison constants, then run the binary with the recovered phrase."
+      ],
+      "files": [
+        "zancudo_gate",
+        "OPERATIONS.txt"
+      ],
+      "directory": "PARTICIPANT/HARD/H01",
+      "solution_outline": "Disassemble the XOR check; recover password bytes from fixed table, execute ELF."
+    },
+    {
+      "id": "H02",
+      "name": "H02 | The Recursive Freeway",
+      "level": "Hard",
+      "category": "Algorithms",
+      "location": "Final Getaway",
+      "topic": "Memoized DAG recursion",
+      "points": 160,
+      "description": "# H02 · The Recursive Freeway\n\n**Level:** Hard · **Points:** 160 · **Category:** Algorithms  \n**Location:** Final Getaway · **Focus:** Memoized DAG recursion\n\n## Mission briefing\nAn auto-routing system models a freeway with 70 dependent junctions. Follow the exact recursive arithmetic in PROTOCOL.md, memoize to avoid repeated work, and produce the unique final clearance flag.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `junctions.json`\n- `PROTOCOL.md`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{2389a89b_378fbf1c}",
+      "hints": [
+        "Terminal nodes have literal values; branch nodes depend on two earlier nodes.",
+        "Memoize the function F(node) and apply the 32-bit mask at every branch.",
+        "The final flag is derived from the destination value and its SHA-256 suffix exactly as PROTOCOL.md specifies."
+      ],
+      "files": [
+        "junctions.json",
+        "PROTOCOL.md"
+      ],
+      "directory": "PARTICIPANT/HARD/H02",
+      "solution_outline": "Memoized DAG evaluator to calculate destination; format final 8-hex value and hash suffix."
+    },
+    {
+      "id": "H03",
+      "name": "H03 | Impound Evidence Matryoshka",
+      "level": "Hard",
+      "category": "Multi-stage forensics",
+      "location": "Los Santos Police Department",
+      "topic": "Polyglot archives",
+      "points": 160,
+      "description": "# H03 · Impound Evidence Matryoshka\n\n**Level:** Hard · **Points:** 160 · **Category:** Multi-stage forensics  \n**Location:** Los Santos Police Department · **Focus:** Polyglot archives\n\n## Mission briefing\nLSPD buried a case packet in a camera PNG. Recover the embedded archive, peel the compression layers, and decode the matching case payload to identify the confidential docket.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `impound_camera.png`\n- `EVIDENCE_NOTE.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{impound_layers_found}",
+      "hints": [
+        "A PNG may contain trailing bytes after IEND. Try zipfile or unzip on the PNG.",
+        "Within case_144, one .gz member holds a TAR archive.",
+        "Find dossier.json and Base85-decode then zlib-decompress the recorded payload."
+      ],
+      "files": [
+        "impound_camera.png",
+        "EVIDENCE_NOTE.txt"
+      ],
+      "directory": "PARTICIPANT/HARD/H03",
+      "solution_outline": "Open PNG as ZIP; open case_144 .gz as gzip; read tar member dossier.json; a85decode + zlib.decompress."
+    },
+    {
+      "id": "H04",
+      "name": "H04 | Fleeca Trust Fall",
+      "level": "Hard",
+      "category": "Secure code review",
+      "location": "Fleeca Bank",
+      "topic": "Unsigned token logic",
+      "points": 160,
+      "description": "# H04 · Fleeca Trust Fall\n\n**Level:** Hard · **Points:** 160 · **Category:** Secure code review  \n**Location:** Fleeca Bank · **Focus:** Unsigned token logic\n\n## Mission briefing\nA local mock bank gateway makes a dangerous assumption about client-supplied authorization tokens. Audit source, identify the trust-boundary mistake, and demonstrate it **only within the provided CLI**.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `bank_gateway.py`\n- `guest.token`\n- `audit_vault.bin`\n- `AUDIT_BRIEF.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{unsigned_admin_trust}",
+      "hints": [
+        "The token has three dot-separated Base64URL segments.",
+        "Review the alg=none branch and the role assertion.",
+        "Forge a token whose header selects none and whose payload claims role=admin. The gateway accepts an empty signature."
+      ],
+      "files": [
+        "bank_gateway.py",
+        "guest.token",
+        "audit_vault.bin",
+        "AUDIT_BRIEF.txt"
+      ],
+      "directory": "PARTICIPANT/HARD/H04",
+      "solution_outline": "Create base64url header {alg:none,typ:JWT}, payload {role:admin,sub:auditor}, empty signature; run local gateway."
+    },
+    {
+      "id": "H05",
+      "name": "H05 | Last Ride Out",
+      "level": "Hard",
+      "category": "Multilayer cryptography",
+      "location": "Final Getaway",
+      "topic": "Route-key derivation and layers",
+      "points": 160,
+      "description": "# H05 · Last Ride Out\n\n**Level:** Hard · **Points:** 160 · **Category:** Multilayer cryptography  \n**Location:** Final Getaway · **Focus:** Route-key derivation and layers\n\n## Mission briefing\nA getaway message crossed multiple radio encodings. The valid vehicle must satisfy the route constraints; use its plate and terminal to derive the XOR key and reverse the remaining layers.\n\n## Objective\nInvestigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `getaway_routes.csv`\n- `intercept.txt`\n- `LAYER_NOTES.md`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FLAG{los_santos_final_escape}",
+      "hints": [
+        "Select only a vehicle with wanted=0, fuel_km>=route_km and clearance=YES.",
+        "Use SHA-256 of PLATE:TERMINAL as the repeating XOR stream key.",
+        "Reverse the packet order: Base85 decode, zlib decompress, then XOR with the derived digest bytes."
+      ],
+      "files": [
+        "getaway_routes.csv",
+        "intercept.txt",
+        "LAYER_NOTES.md"
+      ],
+      "directory": "PARTICIPANT/HARD/H05",
+      "solution_outline": "Choose qualifying route; base85 decode intercept, decompress, XOR SHA256(plate:terminal) digest."
+    }
+  ]
+}

@@ -26,7 +26,7 @@ stats=Counter((method,path.split('/')[1]) for method,path,kw in s.calls)
 assert stats[('POST','challenges')]==15,stats
 assert stats[('POST','flags')]==15,stats
 assert stats[('POST','hints')]==45,stats
-assert stats[('POST','files')]==28,stats
+assert stats[('POST','files')]==36,stats
 assert stats[('PATCH','challenges')]==15,stats
 for method,path,kw in s.calls:
  if (method,path)==('POST','/files'):
@@ -38,4 +38,4 @@ for method,path,kw in s.calls:
   assert kw['json']['state']=='hidden'
  if method=='PATCH':
   assert kw['json']['state']=='visible'
-print('PASS: mock API validates 15 challenge creates, 15 flags, 45 hints, 28 files, 15 publications; no flag logging.')
+print('PASS: mock API validates 15 challenge creates, 15 flags, 45 hints, 36 files, 15 publications; no flag logging.')

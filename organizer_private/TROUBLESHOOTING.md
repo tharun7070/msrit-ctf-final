@@ -13,7 +13,7 @@
 | H01 `Exec format error` | Linux ELF on native Windows/macOS ARM | Use WSL2 Ubuntu on x86-64, x86 Linux VM, supervised event machine |
 | M05 decoder raises `Incorrect padding` | Intended bug | Restore missing Base64 URL padding |
 | SQLi CLI seemingly stuck | Waiting for owner and PIN | Enter both prompts; test only the included local `fleeca_kiosk.py` |
-| Hint button absent | Hint association or CTFd permissions | Check three zero-cost hints under challenge admin |
+| Hint button absent | Hint association or CTFd permissions | Check three hints under challenge admin (each with a `cost` so unlocking deducts points) |
 | Duplicate score after offline mode | Offline + CTFd merge | Judge reconciles unique team/challenge solves before publishing |
 | Flag rejected | Extra spaces, wrong case/mission, incorrect decoding | Check braces and case; compare private answer only through head judge |
 

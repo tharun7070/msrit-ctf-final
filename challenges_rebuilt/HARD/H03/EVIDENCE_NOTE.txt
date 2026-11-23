@@ -1,0 +1,118 @@
+================================================================
+ LSPD IMPOUND LOT — RECOVERED FIELD NOTE  (CASE FTA-2026-1104)
+ Vehicle: Declasse Voodoo (orange)   Evidence bag #4471
+================================================================
+
+The camera that took impound_camera.png had a second job. The
+evidence techs call it "the matryoshka": every thing you open
+hides another thing inside it. Work it layer by layer or not at
+all. Everything you need to peel the doll is written below.
+
+----------------------------------------------------------------
+LAYER 1 — HOW THE PICTURE HIDES DATA
+----------------------------------------------------------------
+  * 2 LEAST-significant bits are buried in every colour channel.
+  * Channels are visited R, then G, then B.
+  * Pixels are read COLUMN by column (down a column, then the
+    next column to the right).
+  * Bits fill each byte most-significant-first.
+  * The first 4 decoded bytes are a big-endian length, followed
+    by that many bytes of an ENCRYPTED blob.
+  * The same PNG carries EXIF GPS tags in its eXIf chunk. That
+    location is the key material for layer 2.
+
+----------------------------------------------------------------
+LAYER 2 — FROM GPS TO A KEY
+----------------------------------------------------------------
+  * Recover latitude and longitude from the EXIF GPS tags.
+  * Convert each to decimal degrees, then to a 10-digit code:
+
+        a = round(abs(lat) * 10000) mod 100000
+        b = round(abs(lon) * 10000) mod 100000
+        CODE = zero-pad(a,5) + zero-pad(b,5)
+
+    PASSPHRASE = "IMPOUND-" + CODE
+
+  * Derive the stream key with PBKDF2-HMAC-SHA256:
+        salt (hex)  = 6c7370642d696d706f756e642d32303236
+        iterations  = 100000
+        dkLen       = 32          (AES-256)
+  * Cipher: AES-256-CTR. The FIRST 16 bytes of the blob are the
+    initial counter block; the rest is ciphertext.
+  * The plaintext is itself a PNG file. Open it.
+
+----------------------------------------------------------------
+LAYER 3 — THE "MTX-1" MATRIX CODE (decoder description)
+----------------------------------------------------------------
+  The decrypted PNG is a black/white block grid: a home-made
+  matrix code (no QR libraries were used). Layout of the module
+  grid, which is 41 x 41 modules:
+    - A 4-module WHITE quiet zone surrounds the code.
+    - Row 0 and column 0 are SYNC ladders: the module at index i
+      is BLACK when i is EVEN, WHITE when i is ODD. Read them to
+      find the module size and the correct orientation (rotate
+      the grid until both ladders match).
+    - Every remaining module (x>=1 AND y>=1) carries one data
+      bit, read ROW-MAJOR (y ascending, then x ascending).
+    - The bit stream is byte-aligned MSB-first: the first 16 bits
+      are a big-endian length L, then L ASCII characters.
+  The decoded characters are the TOKEN for the next layer.
+
+----------------------------------------------------------------
+LAYER 4 — THE TOKEN IS NOT WHAT IT LOOKS LIKE
+----------------------------------------------------------------
+  The token is shaped exactly like URL-safe base64, and decodes
+  to bytes without complaint. But those bytes are not text: they
+  are a HUFFMAN BITSTREAM, most-significant-bit first.
+    - The first 16 bits are a big-endian character count C.
+    - The next bits are C Huffman symbols; decode them with the
+      FLEET LEDGER below (route 'L' = bit 0, 'R' = bit 1; 'unit'
+      is the ASCII chit number of the symbol).
+
+  FLEET DISPATCH LEDGER  (unit : route)
+[LEDGER-BEGIN]
+ 10 RLRLLL
+ 32 LLRLR
+ 34 LRLRL
+ 39 RRRR
+ 40 LRLRR
+ 41 LRRLL
+ 44 LRRLR
+ 46 RLRLLR
+ 48 RLRLRL
+ 49 RLRLRR
+ 51 LLLL
+ 52 LLRR
+ 65 RLRRLL
+ 70 RLRRLR
+ 84 RLRRRL
+ 91 RLRRRR
+ 93 RRLLLL
+ 95 LLLR
+ 99 RRLLLR
+100 RRLLRL
+102 RRLLRR
+104 RRLRLL
+105 LRRRL
+106 RRLRLR
+107 RRLRRL
+108 RRLRRR
+109 RRRLLL
+110 LRRRR
+111 RRRLLR
+112 RRRLRL
+114 LRLL
+115 RLLLL
+116 RLLLR
+118 RLLRL
+121 RLLRR
+123 RRRLRR
+125 LLRLL
+[LEDGER-END]
+
+  What tumbles out is code. Run it.
+
+----------------------------------------------------------------
+  "Every doll holds a smaller doll. Stop early and you go home
+   with nothing but sawdust."
+================================================================

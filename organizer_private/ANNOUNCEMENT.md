@@ -10,7 +10,7 @@
 **THE BIG HEIST** — investigate airport traffic, debug scripts and audit a fictional bank.  
 **THE FINAL GETAWAY** — reverse binaries, solve recursive route logic and unravel forensic layers.
 
-Bring a laptop with Python and a browser. First-year through third-year engineering students are welcome; all missions are local and educational. Free hints keep the action moving.
+Bring a laptop with Python and a browser. First-year through third-year engineering students are welcome; all missions are local and educational. Optional hints keep the action moving — each unlocked hint deducts points from your crew's score.
 
 **Date:** To be announced by the organizing committee  
 **Venue:** College TechFest / CSE Department — confirm with organizers  

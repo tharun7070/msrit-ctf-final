@@ -1,16 +1,16 @@
 # E05 · Wrong Extension, Right Exit
 
 **Level:** Easy · **Points:** 50 · **Category:** File forensics  
-**Location:** Los Santos Customs · **Focus:** File signatures
+**Location:** Los Santos Customs · **Focus:** PDF/ZIP polyglot + AES + SQLite
 
 ## Mission briefing
-An informant labeled a cargo archive as a JPEG to get it past a casual inspection. Identify what it actually is, open it, and read the hexadecimal shipment code.
+A customs courier filed a manifest that is two files at once: it opens as a clean customs form and, to a different reader, as something else entirely. Folded inside is an encrypted archive — keyed by a serial the form prints in plain sight, if you can actually read the field and not just the text.
 
 ## Objective
-Investigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.
+Unwrap the polyglot, decrypt the inner archive, and query the recovered database. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
-- `customs_camera.jpg`
+- `impound_dossier.pdf`
 
 ## Scope and safety
 Work only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.

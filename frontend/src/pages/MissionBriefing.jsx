@@ -6,6 +6,12 @@ import { useAuth } from '../hooks/useAuth';
 import MissionPassedOverlay from '../components/MissionPassedOverlay';
 import NavBar from '../sections/NavBar';
 
+// Unlocking a hint deducts from the crew's score (enforced server-side by CTFd).
+const HINT_COST_BY_LEVEL = { Easy: 10, Medium: 20, Hard: 30 };
+// Three wrong flag submissions lock this mission's terminal for 120 seconds.
+const MAX_ATTEMPTS = 3;
+const LOCKOUT_MS = 120 * 1000;
+
 export default function MissionBriefing() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -27,7 +33,12 @@ export default function MissionBriefing() {
     }))
   );
   const [hints, setHints] = useState(
-    (initialChallenge.hints || []).map((h, i) => ({ id: i + 1, cost: 0, content: h }))
+    (initialChallenge.hints || []).map((h, i) => ({
+      id: `local-${i + 1}`,
+      cost: HINT_COST_BY_LEVEL[initialChallenge.level] ?? 10,
+      content: null,
+      text: h,
+    }))
   );
   const [unlockedHints, setUnlockedHints] = useState({});
   const [loading, setLoading] = useState(false);
@@ -40,6 +51,11 @@ export default function MissionBriefing() {
   const [resultMessage, setResultMessage] = useState('');
   const [showPassedOverlay, setShowPassedOverlay] = useState(false);
   const [isSolved, setIsSolved] = useState(false);
+
+  // Per-mission lockout state (3 wrong attempts -> 120s cooldown)
+  const [wrongCount, setWrongCount] = useState(0);
+  const [lockUntil, setLockUntil] = useState(0);
+  const [nowTick, setNowTick] = useState(Date.now());
 
   // Active tab: 'briefing' | 'evidence' | 'hints'
   const [activeTab, setActiveTab] = useState('briefing');
@@ -92,7 +108,7 @@ export default function MissionBriefing() {
         location: meta.location || cData.location || 'Los Santos Underground',
         description: meta.briefing || cData.description || cData.briefing,
         briefing: meta.briefing || cData.briefing || cData.description,
-        objective: meta.objective || cData.objective || 'Submit recovered flag to CTFd in FLAG{...} format.',
+        objective: meta.objective || cData.objective || 'Submit recovered flag to CTFd in FTA{...} format.',
       };
 
       // Ensure files array has downloadable locations
@@ -109,18 +125,28 @@ export default function MissionBriefing() {
         };
       });
 
-      // Ensure hints array
+      // Ensure hints array. Content stays locked until unlocked (unlock deducts score).
       const rawHints = hData.length > 0 ? hData : (meta.hints || cData.hints || []);
+      const hintCost = HINT_COST_BY_LEVEL[lvl] ?? 10;
       const challengeHints = rawHints.map((h, i) => {
         if (typeof h === 'string') {
-          return { id: i + 1, cost: 0, content: h };
+          return { id: `local-${i + 1}`, cost: hintCost, content: null, text: h };
         }
-        return h;
+        return { ...h, cost: h.cost ?? hintCost, text: h.text || h.content || '' };
       });
 
       setChallenge(fullChallenge);
       setFiles(challengeFiles);
       setHints(challengeHints);
+
+      // Preserve any hints the team already unlocked on the server.
+      const alreadyUnlocked = {};
+      challengeHints.forEach((h) => {
+        if (!String(h.id).startsWith('local-') && h.content) alreadyUnlocked[h.id] = h.content;
+      });
+      if (Object.keys(alreadyUnlocked).length) {
+        setUnlockedHints((prev) => ({ ...prev, ...alreadyUnlocked }));
+      }
 
       // Check if already solved
       try {
@@ -145,9 +171,44 @@ export default function MissionBriefing() {
     loadData();
   }, [id]);
 
+  // Load any active lockout for this mission (persists across reloads).
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`fta_lock_${id}`) || 'null');
+      setWrongCount(saved?.wrongCount || 0);
+      setLockUntil(saved?.lockUntil || 0);
+    } catch {
+      setWrongCount(0);
+      setLockUntil(0);
+    }
+  }, [id]);
+
+  // 1s tick so the lockout countdown updates live.
+  useEffect(() => {
+    const tick = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+
+  const isLocked = lockUntil > nowTick;
+  const lockedRemaining = Math.max(0, Math.ceil((lockUntil - nowTick) / 1000));
+
+  const persistLock = (wrong, until) => {
+    try {
+      localStorage.setItem(`fta_lock_${id}`, JSON.stringify({ wrongCount: wrong, lockUntil: until }));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
   const handleSubmitFlag = async (e) => {
     e.preventDefault();
     if (!flag.trim()) return;
+
+    if (lockUntil > Date.now()) {
+      setSubmissionResult('incorrect');
+      setResultMessage('Submissions locked — too many failed attempts. Try again shortly.');
+      return;
+    }
 
     setSubmitting(true);
     setSubmissionResult(null);
@@ -163,13 +224,32 @@ export default function MissionBriefing() {
         setIsSolved(true);
         setShowPassedOverlay(true);
         setFlag('');
+        setWrongCount(0);
+        setLockUntil(0);
+        persistLock(0, 0);
       } else if (status === 'already_solved') {
         setSubmissionResult('already_solved');
         setIsSolved(true);
         setResultMessage(message || 'This mission was already cleared by your crew.');
+        setWrongCount(0);
+        setLockUntil(0);
+        persistLock(0, 0);
       } else {
-        setSubmissionResult('incorrect');
-        setResultMessage(message || 'MISSION FAILED — INCORRECT FLAG RECEIVED');
+        // Any non-correct response counts as a wrong attempt.
+        const next = wrongCount + 1;
+        if (next >= MAX_ATTEMPTS) {
+          const until = Date.now() + LOCKOUT_MS;
+          setWrongCount(0);
+          setLockUntil(until);
+          persistLock(0, until);
+          setSubmissionResult('incorrect');
+          setResultMessage('3 failed attempts — flag submissions locked for 120 seconds.');
+        } else {
+          setWrongCount(next);
+          persistLock(next, lockUntil);
+          setSubmissionResult('incorrect');
+          setResultMessage(message || `MISSION FAILED — INCORRECT FLAG RECEIVED (${MAX_ATTEMPTS - next} attempt(s) left)`);
+        }
       }
     } catch (err) {
       setSubmissionResult('error');
@@ -180,16 +260,24 @@ export default function MissionBriefing() {
   };
 
   const handleUnlockHint = async (hint) => {
-    if (hint.cost > 0) {
-      const conf = window.confirm(`Unlocking this intel costs $${hint.cost}. Confirm?`);
-      if (!conf) return;
-    }
+    const cost = hint.cost || 0;
+    const conf = window.confirm(
+      cost > 0
+        ? `Unlock this intel? $${cost} will be deducted from your crew's score.`
+        : 'Unlock this intel? (no score cost)'
+    );
+    if (!conf) return;
+
     try {
+      // The score deduction is applied server-side by CTFd when the unlock is accepted.
       await unlockHint(hint.id);
-      const content = await getHintContent(hint.id);
-      setUnlockedHints(prev => ({ ...prev, [hint.id]: content?.content || 'Intel unlocked' }));
+      const content = await getHintContent(hint.id).catch(() => null);
+      setUnlockedHints((prev) => ({
+        ...prev,
+        [hint.id]: content?.content || hint.text || 'Intel unlocked',
+      }));
     } catch (err) {
-      alert('Failed to unlock hint: ' + (err.message || 'Unknown error'));
+      alert('Intel remains locked: unlock failed and no score was deducted. ' + (err.message || 'Server unreachable'));
     }
   };
 
@@ -409,35 +497,38 @@ export default function MissionBriefing() {
                   PROGRESSIVE TACTICAL HINTS
                 </h3>
                 <p className="text-xs font-mono text-gray-400">
-                  Hints do not penalize your cash earnings if configured as free by the organizer.
+                  Each unlocked hint deducts points from your crew's score. Hints are optional.
                 </p>
 
                 <div className="space-y-4 mt-4">
                   {hints.length > 0 ? (
                     hints.map((hint, index) => {
-                      const isUnlocked = unlockedHints[hint.id] || hint.content;
+                      const revealed = unlockedHints[hint.id];
+                      const cost = hint.cost || 0;
                       return (
                         <div key={hint.id} className="p-4 bg-white/5 border border-white/10 rounded">
                           <div className="flex justify-between items-center">
                             <span className="font-mono text-xs uppercase text-yellow font-bold">
                               INTEL DROP #{index + 1}
                             </span>
-                            {!isUnlocked && (
+                            {revealed ? (
+                              <span className="font-mono text-xs text-cash font-bold">✓ UNLOCKED</span>
+                            ) : (
                               <button
                                 onClick={() => handleUnlockHint(hint)}
                                 className="btn-outline-heist py-1 px-3 text-xs font-mono"
                               >
-                                UNLOCK INTEL {hint.cost > 0 ? `($${hint.cost})` : '(FREE)'}
+                                🔒 UNLOCK INTEL {cost > 0 ? `(-$${cost})` : '(FREE)'}
                               </button>
                             )}
                           </div>
-                          {isUnlocked ? (
+                          {revealed ? (
                             <p className="text-sm text-gray-200 mt-2 font-mono bg-black/40 p-3 rounded border border-white/5">
-                              {unlockedHints[hint.id] || hint.content}
+                              {revealed}
                             </p>
                           ) : (
                             <p className="text-xs text-gray-500 mt-1 italic font-mono">
-                              [CLASSIFIED] Click unlock to reveal dispatch note.
+                              [CLASSIFIED] Unlocking this intel deducts ${cost} from your crew's score.
                             </p>
                           )}
                         </div>
@@ -471,7 +562,7 @@ export default function MissionBriefing() {
               </div>
 
               <p className="text-xs font-mono text-gray-400">
-                Submit exact flag format: <span className="text-pink font-bold">FLAG&#123;...&#125;</span>
+                Submit exact flag format: <span className="text-pink font-bold">FTA&#123;...&#125;</span>
               </p>
 
               {/* Status messages */}
@@ -493,6 +584,18 @@ export default function MissionBriefing() {
                 </div>
               )}
 
+              {isLocked && (
+                <div className="p-3 bg-red-950/80 border border-red-500/50 text-red-200 text-xs font-mono rounded">
+                  ⛔ SUBMISSIONS LOCKED — 3 failed attempts. Retry in {lockedRemaining}s.
+                </div>
+              )}
+
+              {!isLocked && wrongCount > 0 && (
+                <div className="p-3 bg-yellow-950/80 border border-yellow-500/50 text-yellow-200 text-xs font-mono rounded">
+                  ⚠ Attempt {wrongCount}/{MAX_ATTEMPTS} — wrong flags lock this terminal for 120s.
+                </div>
+              )}
+
               {!user ? (
                 <div className="p-4 bg-white/5 border border-pink/30 rounded text-center space-y-3">
                   <span className="text-xs font-mono uppercase text-gray-400 block">
@@ -509,8 +612,8 @@ export default function MissionBriefing() {
                       type="text"
                       value={flag}
                       onChange={(e) => setFlag(e.target.value)}
-                      placeholder="FLAG{...}"
-                      disabled={submitting}
+                      placeholder="FTA{...}"
+                      disabled={submitting || isLocked}
                       className="heist-input rounded font-mono uppercase tracking-wider"
                       required
                     />
@@ -518,11 +621,13 @@ export default function MissionBriefing() {
 
                   <button
                     type="submit"
-                    disabled={submitting || !flag.trim()}
+                    disabled={submitting || !flag.trim() || isLocked}
                     className="btn-heist w-full py-3.5 flex-center gap-2 cursor-pointer disabled:opacity-50 font-bold"
                   >
                     {submitting ? (
                       <div className="spinner !size-5 !border-2" />
+                    ) : isLocked ? (
+                      `LOCKED ${lockedRemaining}s`
                     ) : (
                       '▶ TRANSMIT PROOF'
                     )}
@@ -534,6 +639,7 @@ export default function MissionBriefing() {
                 <p>• Verified directly against CTFd secure validator</p>
                 <p>• Score credited immediately on correct transmission</p>
                 <p>• Duplicate solves receive no additional cash</p>
+                <p>• Three wrong flags lock this terminal for 120 seconds</p>
               </div>
             </div>
 

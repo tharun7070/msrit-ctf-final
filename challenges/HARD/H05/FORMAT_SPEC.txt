@@ -1,0 +1,24 @@
+ESCAPE-3 wire framing - FORMAT SPECIFICATION
+============================================
+
+The handshake transcript is a flat byte stream made of concatenated records.
+This document specifies ONLY the framing. It deliberately does not define the
+meaning of any type code; that belongs to the protocol description.
+
+Record layout - all integers are BIG-ENDIAN:
+
+    +--------+--------+---------------------------+
+    | type   | length | value                     |
+    | 2 B    | 4 B    | `length` bytes            |
+    +--------+--------+---------------------------+
+
+    type    : uint16, big-endian
+    length  : uint32, big-endian, byte count of value
+    value   : opaque byte string, `length` bytes long
+
+Records are packed back-to-back with no padding and no separators. A reader
+consumes one record, advances by 6 + length bytes, and repeats until the
+buffer is exhausted.
+
+Type codes seen on this wire (their meaning is defined elsewhere):
+    0x0001  0x0002  0x0003  0x0010  0x0011  0x0012  0x0020  0x0030

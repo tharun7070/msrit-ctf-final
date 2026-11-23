@@ -28,6 +28,6 @@ The fictional authorities have closed the freeways. Crack a Fort Zancudo Linux g
 
 ## Victory Condition
 
-Recover as many of the fifteen unique `FLAG{...}` messages as possible, submit them to CTFd under your crew's account before the public deadline, and climb the leaderboard. Full completion totals **1,550 points**. Every crew has access to three free, progressive hints per mission.
+Recover as many of the fifteen unique `FTA{...}` messages as possible, submit them to CTFd under your crew's account before the public deadline, and climb the leaderboard. Full completion totals **1,550 points**. Every crew has access to three progressive hints per mission; unlocking a hint deducts points from your crew's score, and three wrong flag submissions lock that mission's terminal for 120 seconds.
 
 **This is an original educational cyber-noir storyline inspired by open-world crime-game aesthetics, not affiliated with the creators of Grand Theft Auto.**

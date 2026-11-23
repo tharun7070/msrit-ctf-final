@@ -1,353 +1,273 @@
 # PRIVATE ANSWER KEY · DO NOT DISTRIBUTE
 
-**Security classification: organizer only.** Contains all 15 exact flags and exploitation walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or student shares. Command examples run **inside each mission folder** (e.g. `PARTICIPANT/MEDIUM/M01`). Correct score for each mission is listed below.
+**Security classification: organizer only.** Contains all 15 exact flags and reference walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or student shares. Correct score for each mission is listed below; total bounty $1,550.
 
 ## E01 · Lester’s Pager Panic — 50 points
 
-**Category:** Cryptography | **Location:** Lester’s Hideout  
-**Correct flag:** `FLAG{vespucci_pager_27}`  
-**Required evidence:** `dispatch.csv`
+**Category:** Cryptography | **Location:** Lester's Hideout  
+**Correct flag:** `FTA{41_c1ph3r_b4s3_cust0m_m0d_p4g3r_l3st3r_2026}`  
+**Required evidence:** `dispatch.csv`, `decoder`
 
 ### Solving procedure
 
-Open `dispatch.csv`, keep `courier=YES`, sort `seq` as **integers**, then Base64-decode each `payload_b64` separately and concatenate. Example:
-```python
-import csv,base64
-r=list(csv.DictReader(open('dispatch.csv')))
-print(''.join(base64.b64decode(x['payload_b64']).decode() for x in sorted((a for a in r if a['courier']=='YES'),key=lambda a:int(a['seq']))))
-```
+Filter rows where (col_A*col_B) mod col_C == 7; sort by (col_D % 2, -col_E); base-41 decode each payload via the reversed decoder; concatenate.
 
 ### Progressive hints (shown in CTFd)
 
-1. The courier column identifies actual orders, not public broadcasts.
-2. Order courier packets by numeric sequence before decoding.
-3. Each payload is independently Base64-encoded; decode each and concatenate.
+1. Most of the log is noise. The real rows are the ones where three columns happen to satisfy one quiet arithmetic rule — and nothing in the file tells you which columns.
+2. The decoder hides both its alphabet and its base. Disassemble it; you are not meant to guess them.
+3. Order matters twice over: the drop is sorted on two columns with opposite directions before the payloads are decoded and joined.
 
 ---
 
 ## E02 · Vinewood Shift Change — 50 points
 
 **Category:** Cryptography | **Location:** Vinewood Boulevard  
-**Correct flag:** `FLAG{vinewood_rot_shift}`  
-**Required evidence:** `taxi_ledger.txt`
+**Correct flag:** `FTA{4ff1n3_v1n3w00d_sh1ft_c0nv0y_99}`  
+**Required evidence:** `taxi_ledger.txt`, `frequency_sample.bin`
 
 ### Solving procedure
 
-The only real mission row is MIDNIGHT. Four wheels plus spare implies **+5** for encryption, so decrypt with shift **−5**. Python:
-```python
-s=next(x.split(' | ',1)[1] for x in open('taxi_ledger.txt') if x.startswith('MIDNIGHT |'))
-print(''.join(chr((ord(c)-65-5)%26+65) if 'A'<=c<='Z' else chr((ord(c)-97-5)%26+97) if 'a'<=c<='z' else c for c in s))
-```
+Pick the row whose SHA1(timestamp) ends in a3; affine-decrypt (a=7,b=11) with parameters derived from frequency_sample.bin; ignore the Caesar-5 decoy.
 
 ### Progressive hints (shown in CTFd)
 
-1. Only the MIDNIGHT route is part of the job.
-2. Four road wheels plus the one spare tell you the rotation.
-3. Undo a shift of five letters on the MIDNIGHT ciphertext.
+1. Trust the checksum, not the eye. Every genuine line pins its own timestamp to a short fingerprint that must satisfy one quiet condition.
+2. The cipher is not a simple rotation — but a separate sample block is long enough for frequency analysis to hand you both of its parameters.
+3. There is a trap line that decodes cleanly under the obvious method. It contains no real flag.
 
 ---
 
 ## E03 · Sandy Shores Hidden Stash — 50 points
 
 **Category:** Linux forensics | **Location:** Sandy Shores  
-**Correct flag:** `FLAG{hidden_stash_sandy}`  
-**Required evidence:** `safehouse.zip`
+**Correct flag:** `FTA{ext2_st4sh_r3c0v3r3d_s4ndy_51}`  
+**Required evidence:** `safehouse.img`
 
 ### Solving procedure
 
-Use `unzip safehouse.zip -d extracted`, then `ls -la extracted/safehouse`. The hidden `.drop_manifest` has `DROP_CODE_HEX=...`. Decode:
-```bash
-grep DROP_CODE_HEX extracted/safehouse/.drop_manifest | cut -d= -f2 | xxd -r -p
-```
+Carve the deleted /ledger.dat from safehouse.img, zlib-decompress, XOR every byte with the key computed from activity.log line 42's hostname (ord(3rd char) ^ ord(7th char)); decode.
 
 ### Progressive hints (shown in CTFd)
 
-1. Use unzip; then inspect the extracted directory, not the ZIP listing alone.
-2. Try ls -la inside the safehouse folder.
-3. The dotfile contains hex bytes; use xxd -r -p or bytes.fromhex().
+1. It is a real filesystem, not an archive. Deleted inodes still carry pointers to their data if you know where to look.
+2. The recovered bytes are compressed and then masked with a single byte. That byte is not in the deleted file — it lives in a surviving log.
+3. The mask is derived arithmetically from a field on one specific line of that log, not read literally.
 
 ---
 
 ## E04 · Del Perro Camera Roll — 50 points
 
-**Category:** Digital forensics | **Location:** Del Perro Pier  
-**Correct flag:** `FLAG{camera_metadata_trail}`  
-**Required evidence:** `pier_camera.png`
+**Category:** Steganography | **Location:** Del Perro Pier  
+**Correct flag:** `FTA{lsb_c0lumn_m4j0r_ut7_p13r}`  
+**Required evidence:** `camera_roll.png`, `README.txt`
 
 ### Solving procedure
 
-Read PNG text metadata without re-saving the image. With Pillow:
-```python
-from PIL import Image
-import base64
-v=Image.open('pier_camera.png').info['dispatch_note']
-print(base64.b32decode(v).decode())
-```
-Alternatively `exiftool pier_camera.png` if installed.
+Read column-major; take 2 LSBs from R, then G, then B, MSB-first; parse a 2-byte big-endian length then a UTF-7 payload.
 
 ### Progressive hints (shown in CTFd)
 
-1. PNG text metadata can carry notes separate from pixel data.
-2. Inspect via exiftool, identify -verbose, or Pillow image.info.
-3. Decode the Base32 string stored under dispatch_note.
+1. Standard LSB tools will find noise and stop. The bits live in a non-standard number of low bits, read a non-standard way.
+2. Read the pixels down the columns, not across the rows — a watermark under a single colour channel nudges you toward the right direction.
+3. Once you have the bitstream it is not UTF-8. It is an older, stranger text encoding.
 
 ---
 
 ## E05 · Wrong Extension, Right Exit — 50 points
 
 **Category:** File forensics | **Location:** Los Santos Customs  
-**Correct flag:** `FLAG{zip_in_plain_sight}`  
-**Required evidence:** `customs_camera.jpg`
+**Correct flag:** `FTA{p0lygl0t_pdf_zip_aes_v4ult}`  
+**Required evidence:** `impound_dossier.pdf`
 
 ### Solving procedure
 
-The JPEG extension is a trap; `file customs_camera.jpg` or `xxd -l 4 customs_camera.jpg` shows ZIP magic `PK`. Read the verified receipt:
-```python
-import zipfile,re
-with zipfile.ZipFile('customs_camera.jpg') as z:
- s=z.read('customs/shipment_verified.txt').decode()
- print(bytes.fromhex(re.search(r'Drop-code \(hex\): ([0-9a-f]+)',s).group(1)).decode())
-```
+Treat impound_dossier.pdf as ZIP; AES-128-CBC decrypt vault.enc with key=MD5(serial from the PDF form field) and IV=first 16 bytes; open vault.db; resolve delivery_hash=SHA1(plate||route); read the flag column.
 
 ### Progressive hints (shown in CTFd)
 
-1. File extensions can lie. Check the first bytes with file or xxd.
-2. The bytes start with a ZIP signature; unzip the archive.
-3. The verified receipt has a hex-encoded message. Decode it.
+1. Extensions lie. A real PDF reader and a real unzipper each see a valid file, and the bytes disagree with the name.
+2. The decryption key is not hidden — it is on the visible form. Parse the PDF field; do not just grep the raw text.
+3. What comes back is a database. The flag sits behind a hash that joins two tables by an unusual key.
 
 ---
 
 ## M01 · Fleeca Vault Glitch — 100 points
 
 **Category:** Web security | **Location:** Fleeca Bank  
-**Correct flag:** `FLAG{fleeca_query_bypass}`  
-**Required evidence:** `fleeca_kiosk.py`, `fleeca.db`
+**Correct flag:** `FTA{s3c0nd_0rd3r_fl33c4_byp4ss}`  
+**Required evidence:** `fleeca_kiosk.py`, `fleeca.db`, `common_pw.txt`
 
 ### Solving procedure
 
-Launch only the included kiosk:
-```bash
-python fleeca_kiosk.py
-```
-Owner input: `' OR 1=1 --` . PIN: `xxxx`. The unsafe SQL is concatenated as `WHERE owner='<input>' AND pin='<input>' ...`; the quote and SQLite comment bypass the PIN check. The first local row is the protected audit record. Kiosk prints its decoded receipt. An unknown owner/PIN pair yields `Access denied`. Real servers are not in scope.
+Register a payload username, trigger the load-profile step so the stored value is interpolated into the second query, and authenticate with the custom hash sha256(pw + user[::-1] + 'GTA_SALT_v2')[:16]. Both gates must pass before the flag is returned.
 
 ### Progressive hints (shown in CTFd)
 
-1. Read the SQL query built inside fleeca_kiosk.py.
-2. A quote can break out of the owner string; -- starts a SQLite comment.
-3. Try an always-true condition in the owner field and a disposable PIN.
+1. Registration is safe. The bug is on the second visit, when stored data is reused inside a query that was never parameterised.
+2. The hash is not any known algorithm. Treat the script itself as its documentation.
+3. You need both a working credential and a broken query — either alone returns nothing.
 
 ---
 
 ## M02 · Airport Ghost Flight — 100 points
 
 **Category:** Network forensics | **Location:** Los Santos International Airport  
-**Correct flag:** `FLAG{lsia_airwave_cargo}`  
-**Required evidence:** `airport_dispatch.pcap`
+**Correct flag:** `FTA{b1n_pr0t0_crc32_gh0st_fl1ght}`  
+**Required evidence:** `airport_traffic.pcap`, `MANIFEST.txt`
 
 ### Solving procedure
 
-Open `airport_dispatch.pcap` in Wireshark (offline). Filter HTTP requests; locate `X-Flight: LS-447`. Capture each `X-Chunk` numeric sequence and corresponding `X-Cargo` Base64 field, then decode each separately and join. There are **3** matching requests amid **22** IP/TCP frames. The private `validate_challenges.py` contains an independent standard-library PCAP parser verifying IPv4/TCP checksums.
+Parse the classic pcap; keep frames whose magic is 0xDEAD1A70, whose CRC32 checks out and whose type is 0x0A; order by the little-endian uint32 at payload offset 6; XOR payload[10:] with the frame's CRC32 bytes; concatenate.
 
 ### Progressive hints (shown in CTFd)
 
-1. All traffic is unencrypted HTTP inside the provided capture.
-2. Filter requests on X-Flight: LS-447, then sort X-Chunk numerically.
-3. Each X-Cargo header is Base64 for one chunk of the answer.
+1. It is not HTTP. Walk the bytes by hand and look for a four-byte signature that marks the tower's own messages.
+2. Not every sealed message is genuine: some fail their seal, and some carry the wrong message class. Trust only the verified ones.
+3. The seal is also the mask, and the messages carry their own order — capture order is a red herring.
 
 ---
 
 ## M03 · LSPD Midnight Audit — 100 points
 
 **Category:** Log forensics | **Location:** Los Santos Police Department  
-**Correct flag:** `FLAG{lspd_logbook_rebuilt}`  
-**Required evidence:** `lspd_auth.log`, `CASE_BRIEF.txt`
+**Correct flag:** `FTA{h4sh_ch41n_t4mp3r_l5pd_aud1t}`  
+**Required evidence:** `lspd_auth.log`, `audit_delta.bin`, `CHAIN_SPEC.txt`
 
 ### Solving procedure
 
-Read `CASE_BRIEF.txt`. Filter `lspd_auth.log` for ALL: `case=714`, `host=lspd-evidence`, `account=case_clerk`, `source=FORENSIC`, `result=ACCEPT`. Sort `part` numerically; join `fraghex`; `bytes.fromhex`. Exactly six records form the correct evidence message, in 507 total lines.
+Implement SHA256(prev_chain_hash + entry_data) verification; find the three forged entries at the chain breaks; apply the RLE-encoded audit_delta.bin to repair them; XOR adjacent event_code characters of the ACCEPT entries to recover the flag.
 
 ### Progressive hints (shown in CTFd)
 
-1. Correlate the case and identity markers in CASE_BRIEF.txt.
-2. Keep case=714, host=lspd-evidence, account=case_clerk, source=FORENSIC, result=ACCEPT.
-3. Sort part numbers before combining fraghex fields and converting hex to text.
+1. Do not read the log — recompute it. Each entry's chain hash must equal the hash of the previous chain hash plus the entry data.
+2. The chain breaks exactly where it was forged. The binary delta is not a plain patch; decode its custom run-length format first.
+3. After repair the flag hides across the accepted events: their event codes, folded pairwise.
 
 ---
 
 ## M04 · Underground XOR Radio — 100 points
 
 **Category:** Cryptography | **Location:** Underground Market  
-**Correct flag:** `FLAG{xor_radio_convoy}`  
-**Required evidence:** `radio_packet.bin`, `checkpoint_keys.csv`
+**Correct flag:** `FTA{lfsr23_b3rl3k4mp_m4ss3y_r4d10}`  
+**Required evidence:** `radio_packet.bin`, `keystream_sample.bin`, `SIGNAL_SPEC.txt`
 
 ### Solving procedure
 
-Sort CSV `stop` numerically, not lexicographically. Each `keybyte_hex` represents a key byte; XOR ciphertext with repeating key.
-```python
-import csv
-r=list(csv.DictReader(open('checkpoint_keys.csv')))
-k=bytes(int(z['keybyte_hex'],16) for z in sorted(r,key=lambda a:int(a['stop'])))
-c=open('radio_packet.bin','rb').read()
-print(bytes(v^k[i%len(k)] for i,v in enumerate(c)).decode())
-```
+XOR keystream_sample.bin with the known header from SIGNAL_SPEC.txt to obtain the keystream; run Berlekamp-Massey over GF(2) to recover the degree-23 LFSR (taps {23,5}) and its state; regenerate the full keystream; XOR it against radio_packet.bin.
 
 ### Progressive hints (shown in CTFd)
 
-1. The CSV lists numeric stop order and one hexadecimal key byte per stop.
-2. Build the key by sorting checkpoint_keys.csv on stop, then bytes.fromhex.
-3. XOR each ciphertext byte with key[i % len(key)].
+1. This is not a repeating human key. The keystream comes from a shift register, and the sample hands you its output bits.
+2. The register is large enough that brute force is hopeless — recover its structure algorithmically from the bit sequence.
+3. Once you can predict the stream, the rest is a flat XOR.
 
 ---
 
 ## M05 · Debugging the Dispatch — 100 points
 
-**Category:** Programming | **Location:** Lester’s Hideout  
-**Correct flag:** `FLAG{debug_the_dispatch}`  
-**Required evidence:** `broken_dispatch.py`, `dispatch_packets.json`, `README_DEBUG.txt`
+**Category:** Programming | **Location:** Lester's Hideout  
+**Correct flag:** `FTA{c0ncurr3ncy_r4c3_d15p4tch_f1x}`  
+**Required evidence:** `broken_dispatch.py`, `dispatch_packets.json`, `README.txt`
 
 ### Solving procedure
 
-There are exactly three bugs in `broken_dispatch.py`. Change sorting key to `int(row['seq'])`, use `for row in ordered` (no `[:-1]`), and restore URL-safe Base64 padding. Correct function:
-```python
-def restore(packets):
- import base64
- ordered=sorted(packets,key=lambda row:int(row['seq']))
- encoded=''.join(row['fragment'] for row in ordered)
- return base64.urlsafe_b64decode(encoded+'='*(-len(encoded)%4)).decode()
-```
-Leave JSON untouched.
+Guard the shared counter with a lock; the fixed dispatcher emits a base85+zlib JSON blob containing stage2.py; correct stage2's checksum so it masks to 32 bits explicitly; its output is the flag.
 
 ### Progressive hints (shown in CTFd)
 
-1. Check how sequence numbers compare when left as strings.
-2. The dispatcher must include every packet, including the last one.
-3. URL-safe Base64 often needs missing padding restored.
+1. The loss is a race, not a logic slip — the shared counter moves without protection. More threads make it worse, not better.
+2. What the fixed dispatcher produces is not the flag. It is another program, and that program has its own bug.
+3. The second bug is about arithmetic width: the value must be computed as if the register were 32 bits wide, which Python will not do for you.
 
 ---
 
 ## H01 · Zancudo Deadbolt — 160 points
 
 **Category:** Reverse engineering | **Location:** Fort Zancudo Military Base  
-**Correct flag:** `FLAG{zancudo_gate_unlocked}`  
+**Correct flag:** `FTA{z4nclud0_vm_d34db0lt_unl0ck}`  
 **Required evidence:** `zancudo_gate`, `OPERATIONS.txt`
 
 ### Solving procedure
 
-Use `file zancudo_gate` and `objdump -d -M intel zancudo_gate`; note the loop doing `argv[i] ^ (0x31 + 7*i)` and comparing against a twelve-byte table starting at ELF virtual address `0x402010`. `objdump -s -j .rodata zancudo_gate` shows the table. Recover each passcode byte as `table[i] ^ (0x31 + 7*i)`. The recovered twelve-character code is **`dockyard9472`**. Run:
-```bash
-chmod +x zancudo_gate
-./zancudo_gate dockyard9472
-```
-A wrong 12-character code prints ACCESS DENIED. The executable decrypts the receipt only on a successful check. `ORGANIZER/validate_challenges.py` reconstructs the passcode from ELF segment offsets without reading private C source.
+Defeat both anti-debug traps; locate the .data vault (a unique 256-byte permutation of 0..255 preceded by a u32 length); per byte compute r = TARGET[i] * K[i]^-1 mod 251 and invert the S-box; the recovered string is the flag.
 
 ### Progressive hints (shown in CTFd)
 
-1. Use file, strings, and objdump -d (or Ghidra). This is a Linux ELF.
-2. The passphrase loop compares each input byte after a position-dependent XOR.
-3. Invert the XOR against the 12 comparison constants, then run the binary with the recovered phrase.
+1. It phones home before it opens. If a debugger is on the line it stays shut and feeds you a story instead of the truth.
+2. The real decision hides behind a single flattened switch — reach past the dispatcher and you will find the station's tables in writable data.
+3. A 256-byte permutation guards a prime modulus. Undo the shuffle, then undo the multiplication beneath that prime, byte by byte.
 
 ---
 
 ## H02 · The Recursive Freeway — 160 points
 
 **Category:** Algorithms | **Location:** Final Getaway  
-**Correct flag:** `FLAG{2389a89b_378fbf1c}`  
-**Required evidence:** `junctions.json`, `PROTOCOL.md`
+**Correct flag:** `FTA{sp3ctr4l_fr33w4y_gr4ph_150m0rph}`  
+**Required evidence:** `junctions.json`, `template.json`, `PROTOCOL.md`
 
 ### Solving procedure
 
-Parse `junctions.json`. Use memoized recursion per `PROTOCOL.md`; terminal node yields `seed`, branch yields `((17*F(left)+31*F(right)+salt)^mask)&0xffffffff` (XOR occurs before AND). Compute `h=f"{F(destination):08x}"` and `SHA256(h ASCII).hexdigest()[:8]`, then build the specified format. Code:
-```python
-import json,hashlib,functools
-j=json.load(open('junctions.json'))
-@functools.lru_cache(None)
-def F(n):
- a=j['junctions'][n]
- return a['seed'] if a['kind']=='terminal' else ((17*F(a['left'])+31*F(a['right'])+a['salt'])^a['mask'])&0xffffffff
-h=f"{F(j['destination']):08x}"
-print('FLAG{'+h+'_'+hashlib.sha256(h.encode()).hexdigest()[:8]+'}')
-```
+Pre-filter candidate nodes by degree sequence and clustering coefficient; find the unique induced 12-node subgraph isomorphic to template.json; verify it via the ordered Laplacian eigenvalue fingerprint; build the flag from the subgraph's node labels per PROTOCOL.md.
 
 ### Progressive hints (shown in CTFd)
 
-1. Terminal nodes have literal values; branch nodes depend on two earlier nodes.
-2. Memoize the function F(node) and apply the 32-bit mask at every branch.
-3. The final flag is derived from the destination value and its SHA-256 suffix exactly as PROTOCOL.md specifies.
+1. Match the blueprint topologically first — degree sequence and local structure prune almost everything.
+2. The blueprint is isomorphic to exactly one subgraph. If several look plausible, the deciding evidence is spectral.
+3. The ordered eigenvalues of the matching subgraph's Laplacian are the fingerprint; the flag itself is built from that subgraph's node labels exactly as PROTOCOL.md specifies.
 
 ---
 
 ## H03 · Impound Evidence Matryoshka — 160 points
 
 **Category:** Multi-stage forensics | **Location:** Los Santos Police Department  
-**Correct flag:** `FLAG{impound_layers_found}`  
+**Correct flag:** `FTA{m4try0shk4_f1v3_l4y3rs_c4rv3d}`  
 **Required evidence:** `impound_camera.png`, `EVIDENCE_NOTE.txt`
 
 ### Solving procedure
 
-`impound_camera.png` is a valid PNG with a ZIP archive appended. Open it with Python `zipfile.ZipFile('impound_camera.png')` or `unzip`. Read `case_144/triage_144.gz` (not case 199), decompress GZIP, open inner TAR, read `sealed/dossier.json`, ASCII85 decode its payload and zlib decompress.
-```python
-import zipfile,gzip,tarfile,io,base64,zlib,json
-with zipfile.ZipFile('impound_camera.png') as z: g=z.read('case_144/triage_144.gz')
-with tarfile.open(fileobj=io.BytesIO(gzip.decompress(g))) as t: d=json.load(t.extractfile('sealed/dossier.json'))
-print(zlib.decompress(base64.a85decode(d['payload'])).decode())
-```
+LSB column-major 2-bit extraction, then AES-256-CTR (PBKDF2 key from the metadata-derived passphrase), then an MTX-1 matrix code, then a Huffman decode using the tree from EVIDENCE_NOTE.txt, then run the recovered Python stage, which deterministically prints the flag.
 
 ### Progressive hints (shown in CTFd)
 
-1. A PNG may contain trailing bytes after IEND. Try zipfile or unzip on the PNG.
-2. Within case_144, one .gz member holds a TAR archive.
-3. Find dossier.json and Base85-decode then zlib-decompress the recorded payload.
+1. The PNG hides something in its low bits — but the layout is not standard. The note's frequency table is a tree, not a code.
+2. One layer is encrypted; its passphrase is derived from metadata coordinates, not from the picture.
+3. Two of the intermediate artefacts are deliberate dead ends. The real final layer is code, and code must be executed.
 
 ---
 
-## H04 · Fleeca Trust Fall — 160 points
+## H04 · LEGAL RAGGING — 160 points
 
-**Category:** Secure code review | **Location:** Fleeca Bank  
-**Correct flag:** `FLAG{unsigned_admin_trust}`  
-**Required evidence:** `bank_gateway.py`, `guest.token`, `audit_vault.bin`, `AUDIT_BRIEF.txt`
+**Category:** Cryptography | **Location:** Fleeca Bank  
+**Correct flag:** `FTA{rs4_crt_f4ult_l3g4l_r4gg1ng}`  
+**Required evidence:** `bank_gateway.py`, `guest.token`, `AUDIT_BRIEF.txt`
 
 ### Solving procedure
 
-Read `bank_gateway.py`. The vulnerability is algorithm confusion / **accepting unsigned `alg=none` tokens** because client-controlled `alg` bypasses HMAC verification. A guest token is valid but lacks `role=admin`. Forge a local unsigned token:
-```python
-import base64,json,subprocess,sys
-enc=lambda x:base64.urlsafe_b64encode(json.dumps(x,separators=(',',':')).encode()).rstrip(b'=').decode()
-token=enc({'alg':'none','typ':'JWT'})+'.'+enc({'sub':'auditor','role':'admin'})+'.'
-subprocess.run([sys.executable,'bank_gateway.py','--token',token],check=True)
-```
-Mitigation: server-controlled allowed algorithm list (reject none), validated cryptographic signature, validated issuer/audience, and access control independent of untrusted claims. Never replay this technique on real systems.
+Call sign_debug on a fixed message to obtain one correct and one faulty signature; p = gcd(bad^e - m mod n, n); q = n//p; d = inv(e,(p-1)(q-1)); sign ADMIN_MESSAGE; submit the token; the gateway returns the flag held in the FTA_H04_FLAG environment variable.
 
 ### Progressive hints (shown in CTFd)
 
-1. The token has three dot-separated Base64URL segments.
-2. Review the alg=none branch and the role assertion.
-3. Forge a token whose header selects none and whose payload claims role=admin. The gateway accepts an empty signature.
+1. The debug route is not constant. Collect signatures of one fixed message until one of them disagrees with itself.
+2. A faulty CRT half still agrees with the truth modulo one prime factor. The difference between a bad signature and the message shares a factor with the public modulus.
+3. Once you own the key, sign what the vault actually wants — and note that the verifier offers a second, weaker confirmation.
 
 ---
 
 ## H05 · Last Ride Out — 160 points
 
 **Category:** Multilayer cryptography | **Location:** Final Getaway  
-**Correct flag:** `FLAG{los_santos_final_escape}`  
-**Required evidence:** `getaway_routes.csv`, `intercept.txt`, `LAYER_NOTES.md`
+**Correct flag:** `FTA{mult1_p4rty_3sc4p3_pr0t0c0l}`  
+**Required evidence:** `intercept.bin`, `final_payload.enc`, `ESCAPE_PROTOCOL.md`, `FORMAT_SPEC.txt`
 
 ### Solving procedure
 
-From `getaway_routes.csv` exactly one car qualifies: `wanted=0`, `clearance=YES`, `fuel_km>=route_km`: the Sentinel with plate `LSX-417`, terminal `DESERT`. Derive `sha256(b'LSX-417:DESERT').digest()` as repeating XOR key. Get text between packet markers, reverse sender order: ASCII85 decode, zlib decompress, repeated XOR.
-```python
-import base64,zlib,hashlib
-s=open('intercept.txt').read().split('---BEGIN-PACKET---')[1].split('---END-PACKET---')[0].strip()
-data=zlib.decompress(base64.a85decode(s))
-key=hashlib.sha256(b'LSX-417:DESERT').digest()
-print(bytes(c^key[i%len(key)] for i,c in enumerate(data)).decode())
-```
+Parse the TLV transcript; identify the three parties; recognise that party C's key material is accepted unauthenticated; substitute an attacker-known C share so the effective session key equals a known value; AES-GCM decrypt final_payload.enc using the prepended 96-bit nonce.
 
 ### Progressive hints (shown in CTFd)
 
-1. Select only a vehicle with wanted=0, fuel_km>=route_km and clearance=YES.
-2. Use SHA-256 of PLATE:TERMINAL as the repeating XOR stream key.
-3. Reverse the packet order: Base85 decode, zlib decompress, then XOR with the derived digest bytes.
+1. The transcript is TLV-framed. FORMAT_SPEC.txt tells you the shape of the frames — not what each type means; you will have to work that out.
+2. Three parties contribute. Two are bound to the transcript; one is taken on faith and never verified.
+3. If you can choose that unverified contribution, you can steer the shared key to a value of your own — then the payload opens.
 
 ---
-

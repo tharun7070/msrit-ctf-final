@@ -1,49 +1,25 @@
 #!/usr/bin/env python3
-"""Solution script for E02 | Vinewood Shift Change
-1. Find row where SHA1(timestamp) ends with 'a3'
-2. Frequency analysis on frequency_sample.bin reveals Affine parameters a=7, b=11
-3. Decrypt ciphertext: p = pow(a, -1, 26) * (c - b) % 26
-"""
-import hashlib
+"""E02 reference solver: checksum-filtered row + affine inverse."""
+import hashlib, sys
 from pathlib import Path
-
-A = 7
-B = 11
-A_INV = pow(A, -1, 26) # 15
-
-def affine_decrypt(text: str, a_inv: int, b: int) -> str:
-    res = []
-    for ch in text:
-        if 'a' <= ch <= 'z':
-            c = ord(ch) - ord('a')
-            p = (a_inv * (c - b)) % 26
-            res.append(chr(ord('a') + p))
-        elif 'A' <= ch <= 'Z':
-            c = ord(ch) - ord('A')
-            p = (a_inv * (c - b)) % 26
-            res.append(chr(ord('A') + p))
-        else:
-            res.append(ch)
-    return ''.join(res)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import lib_fta as L
 
 def solve():
-    ledger_path = Path("D:/ctf/FLAG_THEFT_AUTO_FINAL/challenges_rebuilt/EASY/E02/taxi_ledger.txt")
-    target_row = None
-    for line in ledger_path.read_text(encoding='utf-8').splitlines():
-        if not line.strip(): continue
-        parts = [p.strip() for p in line.split('|')]
-        ts = parts[0]
-        if hashlib.sha1(ts.encode()).hexdigest().endswith('a3'):
-            target_row = parts
+    p = L.out_dir("E02") / "taxi_ledger.txt"
+    target = None
+    for line in p.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        tstamp, _, _, _, payload = [x.strip() for x in line.split("|")]
+        if hashlib.sha1(tstamp.encode()).hexdigest().endswith("a3"):
+            target = (tstamp, payload)
             break
+    assert target, "no checksum-matching row"
+    flag = L.affine_dec(target[1], 7, 11)
+    assert flag == L.FLAGS["E02"], flag
+    print("[E02] PASS ->", flag)
+    return flag
 
-    assert target_row is not None, "Target row not found!"
-    ciphertext = target_row[4]
-    flag = affine_decrypt(ciphertext, A_INV, B)
-    print(f"[+] Found target row timestamp: {target_row[0]}")
-    print(f"[+] Decrypted flag: {flag}")
-    assert flag == "FTA{4ff1n3_v1n3w00d_sh1ft_c0nv0y_99}"
-    print("[+] E02 Solved & Verified!")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     solve()

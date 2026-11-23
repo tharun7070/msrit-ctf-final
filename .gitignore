@@ -1,0 +1,29 @@
+# ── Node / frontend ────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# Vite build output (regenerate with `npm run build`)
+frontend/dist/
+dist/
+
+# ── Python ─────────────────────────────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# ── Secrets / env ──────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── OS / editors ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# ── Logs / runtime ─────────────────────────────────────────────────
+*.log
+ctfd_logs/

@@ -1,13 +1,13 @@
 # H01 · Zancudo Deadbolt
 
 **Level:** Hard · **Points:** 160 · **Category:** Reverse engineering  
-**Location:** Fort Zancudo Military Base · **Focus:** ELF binary
+**Location:** Fort Zancudo Military Base · **Focus:** Obfuscated ELF + anti-debug + custom VM
 
 ## Mission briefing
-A fictional military gate terminal has no source code and asks for a twelve-character authorization phrase. Reverse its byte-check logic to unlock the terminal and recover the mission receipt.
+Fort Zancudo's Hangar 13 deadbolt runs firmware nobody has logged into since the desert went sideways. Your only copy is a stripped native binary that refuses to be watched and asks for a single operator passphrase. It is under no obligation to tell you the truth about why it says no.
 
 ## Objective
-Investigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.
+Reverse the station's check and recover the operator passphrase. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
 - `zancudo_gate`

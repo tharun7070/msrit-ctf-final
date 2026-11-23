@@ -1,4 +1,17 @@
-ZANCUDO TERMINAL / FICTIONAL OFFLINE CHALLENGE
-This is a 64-bit Linux ELF. No network or special permissions required.
-Run: chmod +x zancudo_gate ; ./zancudo_gate <12-character authorization code>
-Useful local tools: file, objdump -d, strings, Ghidra (optional).
+ZANCUDO ACCESS CONTROL STATION
+==============================
+installation : Fort Zancudo, Hangar 13 perimeter
+station      : access control station "ZANCUDO DEADBOLT"
+platform     : native Linux x86-64 service binary  (zancudo_gate)
+
+The station admits a single operator passphrase and is driven as:
+
+    ./zancudo_gate <passphrase>
+
+Field notes
+-----------
+* The station reports its own health before it accepts anything. If it refuses
+  to talk, you are interrogating it the wrong way.
+* Everything it needs is stored on-board; nothing is fetched at run time.
+* There is no recovery console and no maintenance back door. Locksmith, not
+  lockpick.

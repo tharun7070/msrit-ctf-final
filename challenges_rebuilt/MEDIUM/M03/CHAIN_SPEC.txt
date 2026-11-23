@@ -1,0 +1,45 @@
+LSPD AUTOMATED AUDIT BUS -- CHAIN FILE SPECIFICATION
+====================================================
+
+FILE: lspd_auth.log
+  One record per line:
+      <seq>|<timestamp>|<event_code>|<data>|<chain_hash>
+  Fields:
+    seq         integer dispatch sequence number, 1..1000, strictly increasing
+    timestamp   ISO-8601 UTC, e.g. 2026-11-23T00:00:07Z
+    event_code  audit token of the form "<first>_<CLASS>" where <first> is a
+                single non-'|' printable character and <CLASS> is the event
+                class (e.g. ACCEPT, DENY, TRACE, ESCORT, PATROL, ALERT, STOP)
+    data        free-form dispatch note (never contains '|')
+    chain_hash  64 lowercase hex chars
+
+CHAIN DEFINITION
+  Let content_i = "<seq>|<timestamp>|<event_code>|<data>" (the first four
+  fields). The chain is:
+      chain_hash_i = sha256_hex( chain_hash_{i-1} + content_i )
+      chain_hash_0 = "0" * 64          (64 ASCII zeroes, the genesis link)
+  i.e. each record commits to the PREVIOUS record's stored hash. To verify a
+  file, walk it top-to-bottom recomputing each chain_hash from the PRECEDING
+  STORED hash and the current content. A record whose recomputed hash differs
+  from its stored hash has been tampered with.
+
+FILE: audit_delta.bin
+  A binary patch carrying the ORIGINAL content (the first four fields, i.e.
+  the "<seq>|<timestamp>|<event_code>|<data>" string) of every record that was
+  altered after the chain was sealed. Layout:
+
+      magic            4 bytes, ASCII "AUD1"
+      record_count     uint16 little-endian
+      then record_count records, each:
+          seq          uint16 little-endian  (which log record this restores)
+          blob_len     uint32 little-endian  (length of the RLE blob below)
+          blob         blob_len bytes of RUN-LENGTH-ENCODED content
+
+  The content bytes are compressed with this custom RLE:
+      token 0x00 <n> <n bytes>   literal block, <n> is 1..255 raw bytes
+      token <n> <value>          a run of <value> repeated <n> times (n is 3..255)
+  Note 0x00 is reserved for the literal opcode, so run counts are always >= 3.
+
+  Restoring a record means replacing its first four fields with the decoded
+  original content. The record's stored chain_hash is untouched (the delta
+  only rewrites content), which is exactly what re-seals the chain.

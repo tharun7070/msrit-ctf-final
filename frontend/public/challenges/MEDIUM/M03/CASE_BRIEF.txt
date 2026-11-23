@@ -1,4 +1,0 @@
-LSPD CASE 714 / VERIFIED EVIDENCE SOURCE
-Authorized chain-of-custody entries originate from host=lspd-evidence and account=case_clerk.
-Evidence ingest uses source=FORENSIC and successful fragments use result=ACCEPT.
-All other lines are ambient audit noise.

@@ -1,0 +1,64 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [6 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Length 3270 >>
+stream
+BT /F2 12.00 Tf 1 0 0 1 48.00 793.89 Tm (FLAG THEFT AUTO) Tj ET
+BT /F2 11.00 Tf 1 0 0 1 48.00 778.89 Tm (LAST RIDE OUT  -  CLASSIFIED OFFLINE INTEL \(hand-out\)) Tj ET
+48.00 758.89 m 547.28 758.89 l S
+BT /F2 10.50 Tf 1 0 0 1 48.00 750.89 Tm (Codename: THE NIGHT SHIFT LOG) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 48.00 735.39 Tm (On the last night before the crew scattered, three couriers each moved a single code-word across Los Santos, one transmission each, through three relay stations. Signals Intelligence recovered a torn page of the relay log. Rebuild the night: work out which courier spoke from which relay, and in what order.) Tj ET
+BT /F2 10.50 Tf 1 0 0 1 48.00 713.89 Tm (THE CREW) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 698.39 Tm (Couriers \(callsigns\):  RICO  .  HALO  .  ECHO) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 682.89 Tm (Relay stations:  ELYSIAN ISLAND \(E\)  .  DEL PERRO PIER \(D\)  .  VINEWOOD TOWER \(V\)) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 667.39 Tm (Transmission slots:  1 \(first\)  .  2 \(middle\)  .  3 \(last, immediately before the blackout\)) Tj ET
+BT /F2 10.50 Tf 1 0 0 1 48.00 645.89 Tm (RELAY RULES \(printed on the protocol page\)) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 630.39 Tm (- Each courier transmits exactly once, from a different relay, in a different slot.) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 614.89 Tm (- A relay carries exactly one transmission.) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 599.39 Tm (- If the wire catches the same courier twice, only the most recent call is authoritative.) Tj ET
+BT /F2 10.50 Tf 1 0 0 1 48.00 577.89 Tm (INTERCEPTED CLUES) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 562.39 Tm (1.  RICO transmitted from ELYSIAN ISLAND.) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 546.89 Tm (2.  HALO's call was the second transmission of the night.) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 531.39 Tm (3.  The DEL PERRO PIER transmission happened immediately after the ELYSIAN ISLAND one.) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 515.89 Tm (4.  ECHO was not the first to transmit.) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 500.39 Tm (\(The raw wire also caught a faint earlier call from ECHO that was cut off before it ever reached a relay. It was superseded - do not let it mislead you.\)) Tj ET
+BT /F2 10.50 Tf 1 0 0 1 48.00 478.89 Tm (RELAY KEY  -  each relay stamps its own code-word on every call it carries:) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 463.39 Tm (ELYSIAN ISLAND  ->  NEWEST) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 447.89 Tm (DEL PERRO PIER  ->  WORD) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 58.00 432.39 Tm (VINEWOOD TOWER  ->  WINS) Tj ET
+48.00 410.89 m 547.28 410.89 l S
+BT /F2 10.50 Tf 1 0 0 1 48.00 402.89 Tm (YOUR ANSWER) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 48.00 387.39 Tm (Decide the one night that satisfies every clue, then read the three relay code-words in transmission order \(slot 1, then 2, then 3\). The resulting three-word pass-phrase is your key. Also be ready to name the courier who made the final transmission.) Tj ET
+BT /F1 10.50 Tf 1 0 0 1 48.00 369.89 Tm (There is exactly one solution. Take the pass-phrase to the organizer desk to claim a private hint for this mission. No computers or internet are required.) Tj ET
+BT /F1 8.50 Tf 1 0 0 1 48.00 348.39 Tm (FLAG THEFT AUTO  .  organizer use only  .  do not photocopy off-site) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000003642 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+3784
+%%EOF

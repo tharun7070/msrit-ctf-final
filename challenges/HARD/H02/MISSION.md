@@ -1,16 +1,17 @@
 # H02 · The Recursive Freeway
 
 **Level:** Hard · **Points:** 160 · **Category:** Algorithms  
-**Location:** Final Getaway · **Focus:** Memoized DAG recursion
+**Location:** Final Getaway · **Focus:** Graph isomorphism + spectral fingerprint
 
 ## Mission briefing
-An auto-routing system models a freeway with 70 dependent junctions. Follow the exact recursive arithmetic in PROTOCOL.md, memoize to avoid repeated work, and produce the unique final clearance flag.
+The getaway routing grid is a graph of hundreds of junctions. Somewhere inside it sits a district that matches a stolen blueprint exactly — and only its spectral signature proves it. Brute force will not finish in time.
 
 ## Objective
-Investigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.
+Find the unique matching subgraph and derive the clearance flag from it. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
 - `junctions.json`
+- `template.json`
 - `PROTOCOL.md`
 
 ## Scope and safety

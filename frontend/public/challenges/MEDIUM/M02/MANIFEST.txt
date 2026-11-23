@@ -1,0 +1,14 @@
+AIRPORT TRAFFIC ARCHIVE — LSIA TOWER
+=====================================
+Captured: 2026-11-21T03:14:00Z   Operator: FTA SIGINT desk
+Source: span port on the runway telemetry switch (10.20.30.0/24).
+
+This file is a raw binary telemetry capture pulled straight off the
+tower wire: the airport keeps shipping its own little packets inside
+the ordinary network traffic. Nobody has given us the wire format.
+
+Not everything on the wire is intact, and not everything that is
+intact is worth reading. Trust the checksums. Read only what the
+tower is actually broadcasting, in the order the tower sent it.
+
+Deliverable: the flight callsign (the recovered flag).

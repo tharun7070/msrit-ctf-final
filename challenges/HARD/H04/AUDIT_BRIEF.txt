@@ -1,3 +1,17 @@
-FLEECA security-audit lab; only the local CLI is in scope.
-Run: python bank_gateway.py --token "$(cat guest.token)"
-The provided guest token has no admin privileges. Locate and demonstrate the missing trust check without a real server.
+MAZE BANK OF LOS SANTOS - SECURITY AUDIT BRIEF (case ref: H04)
+----------------------------------------------------------------
+The token service shipped as bank_gateway.py was pushed to production
+in a hurry. During a routine sweep the audit crew noticed a leftover
+debug route (/sign_debug) that is still wired up in the local build.
+
+We recovered one working credential off a teller's shared drive:
+
+    guest.token
+
+It is only good for read-only teller traffic. The vault order the bank
+actually cares about is signed under a different role, and the gateway
+will only hand over the registered marker when a correctly signed order
+for that role is presented.
+
+Ask the debug route to sign reference traffic and compare what it hands
+back across a few requests before you trust any single answer.

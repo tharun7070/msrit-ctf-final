@@ -1,18 +1,21 @@
-# H04 · Fleeca Trust Fall
+# H04 · LEGAL RAGGING
 
-**Level:** Hard · **Points:** 160 · **Category:** Secure code review  
-**Location:** Fleeca Bank · **Focus:** Unsigned token logic
+**Level:** Hard · **Points:** 160 · **Category:** Cryptography  
+**Location:** Fleeca Bank · **Focus:** RSA-CRT fault attack + timing oracle
 
 ## Mission briefing
-A local mock bank gateway makes a dangerous assumption about client-supplied authorization tokens. Audit source, identify the trust-boundary mistake, and demonstrate it **only within the provided CLI**.
+Fleeca's mock gateway signs bank orders with RSA-CRT and keeps a 'debug' signing route it was never supposed to ship. Occasionally that route lies about one of its two internal halves. Two signatures of the same order are enough to undo the key — and a second weakness in verification confirms the forgery.
+
+SPECIAL OFFLINE HINT — CREW FITNESS CHECK
+
+Visit the organizer desk to unlock an optional hint. One willing team representative can complete 10 push-ups, or choose an equivalent non-physical logic task. The organizer will provide the hint privately. This activity is optional, supervised and compliant with college rules — there is no pressure, humiliation or compulsory physical activity.
 
 ## Objective
-Investigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.
+Recover the signing key from the faulty debug route, forge an admin order, and unlock the vault. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
 - `bank_gateway.py`
 - `guest.token`
-- `audit_vault.bin`
 - `AUDIT_BRIEF.txt`
 
 ## Scope and safety

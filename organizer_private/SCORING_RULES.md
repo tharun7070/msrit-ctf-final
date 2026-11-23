@@ -7,7 +7,7 @@
 | The Final Getaway (Hard) | 5 | 160 | 800 |
 | **Total** | **15** | | **1,550** |
 
-All challenges are **standard fixed-value** CTFd challenges. Three hints each, all with zero cost. First accepted flag per team per challenge grants the full value. No speed bonuses, first-blood bonuses, extra credit, or wrong-guess deductions.
+All challenges are **standard fixed-value** CTFd challenges. Three hints each; unlocking a hint deducts **10 / 20 / 30** points (Easy / Medium / Hard) from the team's score. First accepted flag per team per challenge grants the full value. No speed bonuses, first-blood bonuses, or extra credit. Wrong guesses carry no direct penalty, but three wrong submissions lock that mission's flag terminal for 120 seconds.
 
 At closing, higher total score ranks higher. Equal totals: the team whose last *score-increasing correct submission* happened earlier wins (earlier time reaching that total). If timestamps exactly match, award the tied place, or use team-name lexical order only for display without changing awards; communicate method in advance. Never use count of guesses or penalties not published in this document.
 

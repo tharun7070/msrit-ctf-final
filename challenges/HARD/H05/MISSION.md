@@ -1,18 +1,23 @@
 # H05 · Last Ride Out
 
 **Level:** Hard · **Points:** 160 · **Category:** Multilayer cryptography  
-**Location:** Final Getaway · **Focus:** Route-key derivation and layers
+**Location:** Final Getaway · **Focus:** 3-party protocol break + AES-GCM
 
 ## Mission briefing
-A getaway message crossed multiple radio encodings. The valid vehicle must satisfy the route constraints; use its plate and terminal to derive the XOR key and reverse the remaining layers.
+The getaway's final message crossed a three-party key agreement. A captured transcript and the encrypted payload survive, and the protocol has one seat nobody ever checked. Sit in it, and the session key becomes yours to choose.
+
+CLASSIFIED OFFLINE INTEL
+
+Collect a confidential paper riddle from the organizer desk. Solve it to receive an additional hint for this mission.
 
 ## Objective
-Investigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.
+Parse the transcript, find the unchecked contribution, bias the session key, and decrypt the payload. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
-- `getaway_routes.csv`
-- `intercept.txt`
-- `LAYER_NOTES.md`
+- `intercept.bin`
+- `final_payload.enc`
+- `ESCAPE_PROTOCOL.md`
+- `FORMAT_SPEC.txt`
 
 ## Scope and safety
 Work only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.

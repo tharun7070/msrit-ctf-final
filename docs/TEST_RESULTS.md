@@ -58,8 +58,8 @@
 | PostCard Component | Interactive 3D hover tilt + video background | **PASS** |
 | Outro & CTA | Responsive grid stats + "JOIN THE HEIST" button | **PASS** |
 | Mission Board | Category filtering, act breakdowns, search filtering | **PASS** |
-| Mission Briefing Modal | Tabbed briefing, evidence download links, hint unlock | **PASS** |
-| Flag Submission Terminal | Format validation (`FLAG{...}`), CTFd API dispatch | **PASS** |
+| Mission Briefing Modal | Tabbed briefing, evidence download links, paid hint unlock (score deduction) | **PASS** |
+| Flag Submission Terminal | Format validation (`FTA{...}`), CTFd API dispatch, 3-wrong/120s lockout | **PASS** |
 | Mission Passed Celebration | Full-screen green HUD overlay with cash animation | **PASS** |
 | Los Santos Most Wanted | 10-second polling leaderboard, rank #1 highlight | **PASS** |
 | Lester's Workbench | 6 offline browser decoders (Base64, Hex, ROT13, Caesar, XOR, Reverse) | **PASS** |

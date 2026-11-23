@@ -32,7 +32,7 @@ def ensure_manifest(root,manifest):
  ids=set();expected=0
  for ch in manifest['challenges']:
   assert ch['id'] not in ids;ids.add(ch['id'])
-  assert ch['flag'].startswith('FLAG{') and ch['flag'].endswith('}')
+  assert ch['flag'].startswith('FTA{') and ch['flag'].endswith('}')
   expected+=ch['points']
   directory=root/ch['directory']
   assert (directory/'MISSION.md').is_file()
@@ -50,7 +50,8 @@ def run(args,session=None):
  if not args.apply:
   print('DRY RUN — no network calls or changes; flags are never printed')
   for ch in challenges:
-   print(f"  {ch['id']} {ch['name']} | {ch['points']} pts | {len(ch['files'])} files | 3 hints")
+   hint_cost={'Easy':10,'Medium':20,'Hard':30}.get(ch['level'],10)
+   print(f"  {ch['id']} {ch['name']} | {ch['points']} pts | {len(ch['files'])} files | 3 hints @ ${hint_cost} each")
   return {'created':0,'dry_run':True}
  url=args.url.rstrip('/') if args.url else ''
  if not url.startswith(('https://','http://')):raise APIError('Use --url with absolute https:// or http:// address')
@@ -68,6 +69,7 @@ def run(args,session=None):
  count=0
  for ch in challenges:
   name=ch['name']
+  hint_cost={'Easy':10,'Medium':20,'Hard':30}.get(ch['level'],10)
   try:
    data=req(session,url,'POST','/api/v1/challenges',json={
     'name':name,'description':ch['description'],'value':ch['points'],
@@ -79,10 +81,11 @@ def run(args,session=None):
    req(session,url,'POST','/api/v1/flags',json={
     'challenge_id':challenge_id,'type':'static','content':ch['flag'],'data':''
    })
+   # Costed hints: unlocking deducts hint_cost from the team's score (CTFd native).
    for index,hint in enumerate(ch['hints'],1):
     req(session,url,'POST','/api/v1/hints',json={
      'challenge_id':challenge_id,'type':'standard','title':f'Hint {index}',
-     'content':hint,'cost':0,
+     'content':hint,'cost':hint_cost,
     })
    for filename in ch['files']:
     path=ROOT/ch['directory']/filename

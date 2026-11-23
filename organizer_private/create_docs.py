@@ -47,7 +47,7 @@ The CTFd importer uses the supported 3.x API rather than assuming a universally 
 put('PARTICIPANT/README.md','''
 # WELCOME TO LOS SANTOS · FLAG THEFT AUTO
 
-You're a 2–3-person crew in a fictional cyber-heist universe. Your task is to recover a unique `FLAG{...}` code from each mission's evidence. No challenge requires access to any real service.
+You're a 2–3-person crew in a fictional cyber-heist universe. Your task is to recover a unique `FTA{...}` code from each mission's evidence. No challenge requires access to any real service.
 
 **How to play:** create/join a team on the CTFd scoreboard; select a mission; download exactly that mission's attached evidence files; investigate locally; submit the complete recovered flag, with braces and case preserved. One correct submission per challenge per team earns the full point value. The organizer can provide the whole participant evidence package for offline backup.
 
@@ -55,7 +55,7 @@ The missions are grouped in `EASY/` (The Street Job, 50 points each), `MEDIUM/` 
 
 Recommended tools: Python 3.9+, a text editor, Terminal/PowerShell or WSL2, `file`, `unzip`, `xxd`, Python Pillow, Wireshark, `strings`, `objdump`, `readelf`. All are free; missions have offline alternatives using Python. One reverse-engineering binary is built for Linux x86-64, so Windows crews should use WSL2 Ubuntu or a provided Linux machine.
 
-Three progressive hints per challenge are available in CTFd at no score cost. Hints are optional; creativity and collaboration inside your crew are encouraged. Submit only the flag, not working or screenshots.
+Three progressive hints per challenge are available in CTFd. Each unlocked hint deducts **10 / 20 / 30** points (Easy / Medium / Hard) from your team's score. Hints are optional; creativity and collaboration inside your crew are encouraged. Submit only the flag, not working or screenshots.
 
 **Important:** the fictional locations are just story. No scanning or probing the college network, real websites, team accounts, or other participants is permitted. See `RULES.md`.
 ''')
@@ -66,7 +66,7 @@ put('PARTICIPANT/RULES.md','''
 2. Use only the files and local programs explicitly provided for each mission. No real-world penetration testing, network scanning, brute-force against live services, malware, privilege escalation against campus systems, or personal-data collection.
 3. No flag exchange, copying another crew's work, using other teams' accounts, exploiting or disrupting CTFd itself, or denial-of-service activity.
 4. Public documentation, offline programming tools, and reference materials are allowed. Ask event organizers before using generative AI; organizers should announce a uniform AI-use rule prior to opening the board.
-5. Hints are free and can be unlocked from the challenge page. No penalty for wrong guesses, subject to platform anti-spam rate limits.
+5. Hints are locked until unlocked and can be unlocked from the challenge page; each unlock deducts points (10 / 20 / 30 for Easy / Medium / Hard). Three wrong flag submissions lock that mission's flag terminal for 120 seconds.
 6. Scores: Easy 50, Medium 100, Hard 160. A valid flag is accepted only if submitted for the correct challenge in the official window.
 7. One correct solve per team per mission. Organizer rulings on technical defects are final and documented for all teams.
 8. Ties at event close are ranked by the earlier timestamp at which the final tied score was attained; see organizer instructions.
@@ -79,8 +79,8 @@ put('ORGANIZER/EVENT_RULES.md','''
 - Team size: 2–3, team mode in CTFd; ideally register 20 minutes before start.
 - Allowed equipment: laptops, local VM/WSL, normal debuggers, Wireshark, programming languages, official challenge files. No live targets anywhere.
 - Prohibited: attacking CTFd, its hosting infrastructure, university assets, others' accounts, external systems, network spam, denial-of-service, social engineering, malware, leaked solutions, flag trading, and opening any private organizer artifact.
-- Visibility: make all 15 missions available together. Unlocked hints cost **0** points. Public discussion of hints and flags between teams is disallowed.
-- Answer acceptance: case-sensitive exact `FLAG{...}`, one correct solve per team per challenge, no negative points, fixed scoring.
+- Visibility: make all 15 missions available together. Unlocking a hint deducts **10 / 20 / 30** points (Easy / Medium / Hard). Public discussion of hints and flags between teams is disallowed.
+- Answer acceptance: case-sensitive exact `FTA{...}`, one correct solve per team per challenge, no negative points, fixed scoring.
 - Staff should decide and announce one universal AI-assistance policy before competition (recommended: AI as reference/tool allowed but no answer-sharing; if prohibited enforce fairly).
 - CTFd reports are the record of truth unless documented downtime activates offline submissions.
 - Do not disclose raw flags to volunteers who only handle registration; designate a head judge as key custodian.
@@ -96,7 +96,7 @@ put('ORGANIZER/SCORING_RULES.md','''
 | The Final Getaway (Hard) | 5 | 160 | 800 |
 | **Total** | **15** | | **1,550** |
 
-All challenges are **standard fixed-value** CTFd challenges. Three hints each, all with zero cost. First accepted flag per team per challenge grants the full value. No speed bonuses, first-blood bonuses, extra credit, or wrong-guess deductions.
+All challenges are **standard fixed-value** CTFd challenges. Three hints each; unlocking a hint deducts **10 / 20 / 30** points (Easy / Medium / Hard) from the team's score. First accepted flag per team per challenge grants the full value. No speed bonuses, first-blood bonuses, or extra credit. Wrong guesses carry no direct penalty, but three wrong submissions lock that mission's flag terminal for 120 seconds.
 
 At closing, higher total score ranks higher. Equal totals: the team whose last *score-increasing correct submission* happened earlier wins (earlier time reaching that total). If timestamps exactly match, award the tied place, or use team-name lexical order only for display without changing awards; communicate method in advance. Never use count of guesses or penalties not published in this document.
 
@@ -166,14 +166,14 @@ python ORGANIZER/CTFD_IMPORT/import_ctfd.py --apply --allow-http
 
 **Caution:** an admin token over plain HTTP can be intercepted on a shared LAN. For student networks use HTTPS even internally where practical. The `--allow-http` switch is for a trusted isolated setup only. Never commit/share `CTFD_TOKEN`.
 
-The script first checks that the 15 names do not already exist, then creates each mission **hidden**, adds the static private flag, three zero-cost hints and all attachments, and finally makes it visible. If it fails, it stops; the partially imported challenge remains hidden. Manually inspect/clean it in CTFd admin before re-running, rather than creating duplicates. It uses supported 3.x API endpoints: `POST /api/v1/challenges`, `/flags`, `/hints`, `/files`, and `PATCH /api/v1/challenges/<id>`.
+The script first checks that the 15 names do not already exist, then creates each mission **hidden**, adds the static private flag, three hints (each with a `cost` so unlocking deducts points — $10/$20/$30 for Easy/Medium/Hard) and all attachments, and finally makes it visible. If it fails, it stops; the partially imported challenge remains hidden. Manually inspect/clean it in CTFd admin before re-running, rather than creating duplicates. It uses supported 3.x API endpoints: `POST /api/v1/challenges`, `/flags`, `/hints`, `/files`, and `PATCH /api/v1/challenges/<id>`.
 
 ## D. Essential post-import checks (must be done on YOUR live server)
 
-1. From admin console confirm **15** standard missions, **1,550** available points, 45 hints, and 28 distinct attachment uploads.
+1. From admin console confirm **15** standard missions, **1,550** available points, 45 hints (each with a non-zero cost), and 36 distinct attachment uploads.
 2. Create a separate student test team and check that downloads work and flags are *not* visible before solving.
 3. Submit an intentionally wrong flag, then one known correct flag using the private answer key; verify the score increments exactly once. Delete the test team's solves or reset the test board before the event.
-4. Check every mission's file names, Markdown rendering, free hint unlocking, and login on a student device over the actual event network.
+4. Check every mission's file names, Markdown rendering, hint unlocking (verify a hint unlock deducts points), and login on a student device over the actual event network.
 5. Test max simultaneous teams, clock settings, leaderboard sorting and closing behavior. Backup the CTFd database and volumes.
 6. If the import itself fails, use CTFd Admin > Challenges > +, create Standard with value/category/description, then attach the private flag, files and hints manually per `ORGANIZER/CTFD_IMPORT/manifest.json`. **Never upload manifest.json.**
 
@@ -191,7 +191,7 @@ put('ORGANIZER/RUNBOOK.md','''
 ## Before participants arrive (T−60 to T−5)
 
 - Confirm server reachable from student network; record LAN URL and test with non-admin account. Check CTFd start/close times and server clock (Asia/Kolkata event zone).
-- Run private validation. Preload the 15 missions through API. Check 45 hints and 28 attachment uploads on actual server.
+- Run private validation. Preload the 15 missions through API. Check 45 hints and 36 attachment uploads on actual server.
 - Test one real student device and one Windows+WSL Linux ELF workflow. Ensure no campus network exploitation is required.
 - Print QR to CTFd base URL and rules; put participant-only ZIP on a public read-only share, bring USB backup.
 - Keep master ZIP/answer key in a password-protected organizer-only location. Take a DB/volume backup before opening.
@@ -203,7 +203,7 @@ put('ORGANIZER/RUNBOOK.md','''
 |---|---|---|
 | 00:00–00:15 | Opening (15 min) | GTA-inspired story, team size, scope, no live attacks, flag syntax, fair play |
 | 00:15–00:25 | Login & briefing (10 min) | Teams register, open an Easy sample, verify downloads; no real flag reveals |
-| 00:25–02:05 | Missions live (100 min) | Make all 15 visible, start scoring; check health every 10 minutes; hints free |
+| 00:25–02:05 | Missions live (100 min) | Make all 15 visible, start scoring; check health every 10 minutes; hints cost points on unlock |
 | 02:05–02:10 | Submission grace (5 min) | No new puzzle work; allow already recovered flags; final cutoff at 02:10 |
 | 02:10–02:20 | Verification (10 min) | Close scoring; export standings, check ties, address documented incidents |
 | 02:20–02:30 | Results & closing (10 min) | Announce winners, prize awards, release post-event educational solutions later |
@@ -212,7 +212,7 @@ put('ORGANIZER/RUNBOOK.md','''
 
 ## At opening
 
-Director says: “Welcome to FLAG THEFT AUTO. Your crew has 100 minutes to raid fictional digital evidence across Los Santos. Submit only flags in exact `FLAG{...}` form. You have three free hints per mission. All actions are limited to the provided offline artifacts. The board is the only official scoreboard, unless we announce backup mode.”
+Director says: “Welcome to FLAG THEFT AUTO. Your crew has 100 minutes to raid fictional digital evidence across Los Santos. Submit only flags in exact `FTA{...}` form. Hints are optional and each unlock deducts points from your score. All actions are limited to the provided offline artifacts. The board is the only official scoreboard, unless we announce backup mode.”
 
 ## Outage and fairness procedures
 
@@ -250,7 +250,7 @@ put('ORGANIZER/TROUBLESHOOTING.md','''
 | H01 `Exec format error` | Linux ELF on native Windows/macOS ARM | Use WSL2 Ubuntu on x86-64, x86 Linux VM, supervised event machine |
 | M05 decoder raises `Incorrect padding` | Intended bug | Restore missing Base64 URL padding |
 | SQLi CLI seemingly stuck | Waiting for owner and PIN | Enter both prompts; test only the included local `fleeca_kiosk.py` |
-| Hint button absent | Hint association or CTFd permissions | Check three zero-cost hints under challenge admin |
+| Hint button absent | Hint association or CTFd permissions | Check three hints under challenge admin (each with a `cost` so unlocking deducts points) |
 | Duplicate score after offline mode | Offline + CTFd merge | Judge reconciles unique team/challenge solves before publishing |
 | Flag rejected | Extra spaces, wrong case/mission, incorrect decoding | Check braces and case; compare private answer only through head judge |
 
@@ -269,7 +269,7 @@ put('ORGANIZER/ANNOUNCEMENT.md','''
 **THE BIG HEIST** — investigate airport traffic, debug scripts and audit a fictional bank.  
 **THE FINAL GETAWAY** — reverse binaries, solve recursive route logic and unravel forensic layers.
 
-Bring a laptop with Python and a browser. First-year through third-year engineering students are welcome; all missions are local and educational. Free hints keep the action moving.
+Bring a laptop with Python and a browser. First-year through third-year engineering students are welcome; all missions are local and educational. Optional hints keep the action moving — each unlocked hint deducts points from your crew's score.
 
 **Date:** To be announced by the organizing committee  
 **Venue:** College TechFest / CSE Department — confirm with organizers  
@@ -390,7 +390,7 @@ def F(n):
  a=j['junctions'][n]
  return a['seed'] if a['kind']=='terminal' else ((17*F(a['left'])+31*F(a['right'])+a['salt'])^a['mask'])&0xffffffff
 h=f"{F(j['destination']):08x}"
-print('FLAG{'+h+'_'+hashlib.sha256(h.encode()).hexdigest()[:8]+'}')
+print('FTA{'+h+'_'+hashlib.sha256(h.encode()).hexdigest()[:8]+'}')
 ```''',
 'H03':'''`impound_camera.png` is a valid PNG with a ZIP archive appended. Open it with Python `zipfile.ZipFile('impound_camera.png')` or `unzip`. Read `case_144/triage_144.gz` (not case 199), decompress GZIP, open inner TAR, read `sealed/dossier.json`, ASCII85 decode its payload and zlib decompress.
 ```python

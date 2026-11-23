@@ -59,14 +59,14 @@ python ORGANIZER/CTFD_IMPORT/import_ctfd.py --apply --allow-http
 
 **Caution:** an admin token over plain HTTP can be intercepted on a shared LAN. For student networks use HTTPS even internally where practical. The `--allow-http` switch is for a trusted isolated setup only. Never commit/share `CTFD_TOKEN`.
 
-The script first checks that the 15 names do not already exist, then creates each mission **hidden**, adds the static private flag, three zero-cost hints and all attachments, and finally makes it visible. If it fails, it stops; the partially imported challenge remains hidden. Manually inspect/clean it in CTFd admin before re-running, rather than creating duplicates. It uses supported 3.x API endpoints: `POST /api/v1/challenges`, `/flags`, `/hints`, `/files`, and `PATCH /api/v1/challenges/<id>`.
+The script first checks that the 15 names do not already exist, then creates each mission **hidden**, adds the static private flag, three hints (each with a `cost` so unlocking deducts points — $10/$20/$30 for Easy/Medium/Hard) and all attachments, and finally makes it visible. If it fails, it stops; the partially imported challenge remains hidden. Manually inspect/clean it in CTFd admin before re-running, rather than creating duplicates. It uses supported 3.x API endpoints: `POST /api/v1/challenges`, `/flags`, `/hints`, `/files`, and `PATCH /api/v1/challenges/<id>`.
 
 ## D. Essential post-import checks (must be done on YOUR live server)
 
-1. From admin console confirm **15** standard missions, **1,550** available points, 45 hints, and 28 distinct attachment uploads.
+1. From admin console confirm **15** standard missions, **1,550** available points, 45 hints (each with a non-zero cost), and 36 distinct attachment uploads.
 2. Create a separate student test team and check that downloads work and flags are *not* visible before solving.
 3. Submit an intentionally wrong flag, then one known correct flag using the private answer key; verify the score increments exactly once. Delete the test team's solves or reset the test board before the event.
-4. Check every mission's file names, Markdown rendering, free hint unlocking, and login on a student device over the actual event network.
+4. Check every mission's file names, Markdown rendering, hint unlocking (verify a hint unlock deducts points), and login on a student device over the actual event network.
 5. Test max simultaneous teams, clock settings, leaderboard sorting and closing behavior. Backup the CTFd database and volumes.
 6. If the import itself fails, use CTFd Admin > Challenges > +, create Standard with value/category/description, then attach the private flag, files and hints manually per `ORGANIZER/CTFD_IMPORT/manifest.json`. **Never upload manifest.json.**
 

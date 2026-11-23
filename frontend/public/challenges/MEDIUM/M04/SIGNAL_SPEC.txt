@@ -1,0 +1,31 @@
+UNDERGROUND RADIO -- SIGNAL SPECIFICATION
+=========================================
+
+Keying
+  Transmissions are masked with a deterministic keystream produced by a
+  linear-feedback shift register of degree 23. The register is advanced once
+  per bit; each byte of keystream is emitted most-significant-bit first. The
+  register's seed and feedback taps are unit secrets and are NOT given here.
+
+Known plaintext header (exactly 64 bytes, ' ' = U+0020 padding to the right):
+
+  LSPD EMERGENCY RADIO NET :: CHANNEL 23 SYNC BEACON :: COPY?     
+
+  (Length: 64 bytes. Everything after the visible text is ASCII spaces.)
+
+Files
+  keystream_sample.bin    64 bytes = header XOR keystream[0:64].
+                          Because the header is known, this exposes the first
+                          512 bits of the raw keystream.
+
+  radio_packet.bin        the intercepted message XOR keystream[0:len]. The
+                          message is longer than 64 bytes, so the captured
+                          sample does not cover the whole transmission.
+
+Task
+  Recover the keystream generator from the exposed 512 bits, extend it as far
+  as the packet needs, unmask the packet, and read the payload. The flag
+  (FTA{...}) is inside the decoded message.
+
+Masked byte semantics
+  plaintext_byte = ciphertext_byte XOR keystream_byte   (bitwise XOR, 8 bits)

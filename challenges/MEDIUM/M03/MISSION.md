@@ -1,17 +1,18 @@
 # M03 · LSPD Midnight Audit
 
 **Level:** Medium · **Points:** 100 · **Category:** Log forensics  
-**Location:** Los Santos Police Department · **Focus:** Event correlation
+**Location:** Los Santos Police Department · **Focus:** Hash-chain verification + tamper reconstruction
 
 ## Mission briefing
-LSPD recovered an auth log with hundreds of entries. Correlate case 714 success events, exclude tampered failures, and decode the sequential hexadecimal fragments.
+LSPD's overnight auth log claims to be tamper-evident: every line is chained to the previous one by a hash. Three lines are lies, and the chain knows it. A sidecar delta holds what the originals should have said.
 
 ## Objective
-Investigate the attached evidence. Submit exactly one recovered flag to CTFd, in the form `FLAG{...}`. The braces and capitalization matter. Do not submit explanations.
+Verify the chain, locate and repair the forgeries, and extract the encoded flag. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
 - `lspd_auth.log`
-- `CASE_BRIEF.txt`
+- `audit_delta.bin`
+- `CHAIN_SPEC.txt`
 
 ## Scope and safety
 Work only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.

@@ -1,0 +1,392 @@
+#!/usr/bin/env python3
+"""H01 "Zancudo Deadbolt" -- generator (private organizer tooling).
+
+Emits ``zancudo_gate.c`` (a self-contained obfuscated Linux x86-64 ELF source),
+then builds + strips the binary inside WSL and drops it in L.out_dir("H01").
+
+Accepted passphrase == L.FLAGS["H01"]. It is *never* stored verbatim. Instead
+the check is a non-linear byte-wise map:
+
+    for input byte i:  v = SBOX[in[i]];  v = (v * K[i]) mod 251;  accept iff v == TARGET[i]
+
+Because MOD = 251 is prime every K[i] (nonzero mod 251) is invertible, so the
+passphrase is recoverable. SBOX / K / TARGET live in one .data "vault" blob:
+
+    [u32 length][SBOX 256][K MAXL][TARGET MAXL]
+
+Obfuscation (see SOLUTION.md for the correction note): genuine control-flow
+flattening (single state-machine dispatcher switch) for both the check loop and
+the mini-VM dispatch, plus manual opaque / bogus predicates. True OLLVM is not
+available in this environment, so no third-party obfuscator is used.
+"""
+import random
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, r"d:\ctf\FLAG_THEFT_AUTO_FINAL\rebuild_workspace")
+import lib_fta as L
+
+WS = Path(r"d:\ctf\FLAG_THEFT_AUTO_FINAL\rebuild_workspace")
+OUT = L.out_dir("H01")
+
+MAXLEN = 200       # sanity bound on passphrase length
+MOD = 251          # prime modulus for the multiply
+VAULT_HDR = 4      # u32 little-endian length prefix size
+SEED = 0x484F3131  # deterministic ("H01")
+FLAG = L.FLAGS["H01"]
+
+OPERATIONS_TXT = """ZANCUDO ACCESS CONTROL STATION
+==============================
+installation : Fort Zancudo, Hangar 13 perimeter
+station      : access control station "ZANCUDO DEADBOLT"
+platform     : native Linux x86-64 service binary  (zancudo_gate)
+
+The station admits a single operator passphrase and is driven as:
+
+    ./zancudo_gate <passphrase>
+
+Field notes
+-----------
+* The station reports its own health before it accepts anything. If it refuses
+  to talk, you are interrogating it the wrong way.
+* Everything it needs is stored on-board; nothing is fetched at run time.
+* There is no recovery console and no maintenance back door. Locksmith, not
+  lockpick.
+"""
+
+
+def wsl_path(p) -> str:
+    s = str(p).replace("\\", "/")
+    return "/mnt/" + s[0].lower() + s[2:]
+
+
+# ---------------------------------------------------------------------------
+# bytecode VM (reference simulator -- mirrors the C interpreter)
+# ---------------------------------------------------------------------------
+BC_NOP, BC_PUSH, BC_ADD, BC_XOR, BC_MUL, BC_DUP, BC_JMP, BC_HALT = range(8)
+
+
+def build_bytecode():
+    # ((0xC3 ^ 0x5A) * 0x07 + 0x21) & 0xFF, expressed in the stack VM.
+    return [BC_PUSH, 0xC3, BC_PUSH, 0x5A, BC_XOR,
+            BC_PUSH, 0x07, BC_MUL, BC_PUSH, 0x21, BC_ADD, BC_HALT]
+
+
+def sim_bytecode(code):
+    stack, ip = [], 0
+    while ip < len(code):
+        op = code[ip]; ip += 1
+        if op == BC_PUSH:
+            stack.append(code[ip]); ip += 1
+        elif op == BC_ADD:
+            b = stack.pop() if stack else 0
+            a = stack.pop() if stack else 0
+            stack.append((a + b) & 0xFF)
+        elif op == BC_XOR:
+            b = stack.pop() if stack else 0
+            a = stack.pop() if stack else 0
+            stack.append((a ^ b) & 0xFF)
+        elif op == BC_MUL:
+            b = stack.pop() if stack else 0
+            a = stack.pop() if stack else 0
+            stack.append((a * b) & 0xFF)
+        elif op == BC_DUP:
+            stack.append(stack[-1] if stack else 0)
+        elif op == BC_JMP:
+            off = code[ip]; ip += 1
+            ip += off - 256 if off > 127 else off
+        elif op == BC_HALT:
+            break
+    return stack[-1] if stack else 0
+
+
+# ---------------------------------------------------------------------------
+# embedded data vault
+# ---------------------------------------------------------------------------
+def build_vault():
+    fb = FLAG.encode()
+    assert 1 <= len(fb) <= MAXLEN, "implausible passphrase length"
+    rnd = random.Random(SEED)
+    # Build a permutation and make sure no accepted byte resolves ambiguously:
+    # for a target r = (SBOX[b]*K) mod 251 we need exactly one pre-image; a second
+    # pre-image only exists when r <= 4 (values r and r+251 both fit in 0..255).
+    while True:
+        sbox = list(range(256))
+        rnd.shuffle(sbox)
+        if all((sbox[b] % MOD) >= 5 for b in fb):
+            break
+    k = [rnd.randrange(1, MOD) for _ in range(len(fb))]
+    target = [(sbox[b] % MOD * k[i]) % MOD for i, b in enumerate(fb)]
+
+    n = len(fb)
+    hdr = n.to_bytes(4, "little")
+    vault = list(hdr) + sbox + k + target          # tight layout, exact lengths
+    assert len(vault) == 4 + 256 + 2 * n
+    return bytes(vault), k, target, sbox, n
+
+
+def _c_array(decl, data, per=16, extra=0):
+    rows = []
+    for r in range(0, len(data), per):
+        rows.append("    " + ", ".join(f"0x{b:02x}" for b in data[r:r + per]))
+    return f"{decl} = {{\n" + ",\n".join(rows) + "\n};"
+
+
+C_PROLOGUE = r'''/* zancudo_gate.c -- GENERATED by gen_h01.py (FLAG THEFT AUTO / H01).
+ *
+ * Fort Zancudo access-control station firmware. The accepted passphrase is not
+ * stored verbatim: it is guarded by a non-linear byte map over a .data vault
+ * and a flattened mini-VM integrity gate, with two anti-debug traps.
+ *
+ * Build (inside WSL/Linux x86-64):
+ *     gcc -O2 -o zancudo_gate zancudo_gate.c && strip -s zancudo_gate
+ */
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <sys/ptrace.h>
+#include <unistd.h>
+
+#define MOD        251
+#define VAULT_HDR  4
+#define VAULT_SBOX (VAULT_HDR)
+#define VAULT_K    (VAULT_HDR + 256)
+#define VAULT_T    (VAULT_HDR + 256 + PASS_LEN)
+#define VAULT_N    (VAULT_HDR + 256 + PASS_LEN * 2)
+
+'''
+
+C_EPILOGUE = r'''
+
+/* --------------------------------------------------------------------- */
+/* anti-debug: two independent traps                                     */
+/* --------------------------------------------------------------------- */
+static int is_being_debugged(void)
+{
+    int traced = 0;
+
+    /* trap B is checked first on purpose: PTRACE_TRACEME licenses the parent as
+       tracer, so /proc/self/status would afterwards report the parent's pid.
+       Read TracerPid while the process state is still pristine. */
+    {
+        FILE *f = fopen("/proc/self/status", "r");  /* trap B: TracerPid */
+        if (f) {
+            char line[256];
+            while (fgets(line, sizeof(line), f)) {
+                if (strncmp(line, "TracerPid:", 10) == 0) {
+                    if (strtol(line + 10, 0, 10) != 0) traced = 1;
+                    break;
+                }
+            }
+            fclose(f);
+        }
+    }
+    if (ptrace(PTRACE_TRACEME, 0, 0, 0) != 0)        /* trap A: already traced */
+        traced = 1;
+
+    return traced;
+}
+
+/* --------------------------------------------------------------------- */
+/* mini VM: 8 opcodes, stack machine, control-flow-flattened dispatcher  */
+/* --------------------------------------------------------------------- */
+enum { OP_NOP = 0, OP_PUSH, OP_ADD, OP_XOR, OP_MUL, OP_DUP, OP_JMP, OP_HALT };
+
+static long vm_run(const unsigned char *code, int n)
+{
+    long stack[32];
+    int sp = 0, ip = 0, st = 0, running = 1;
+    unsigned char op = 0;
+    long a, b, result = 0;
+
+    while (running) {
+        switch (st) {                                   /* flattened dispatch */
+        case 0:                                          /* FETCH */
+            if (ip < 0 || ip >= n) { st = 4; break; }
+            op = code[ip++];
+            st = 1;
+            break;
+        case 1:                                          /* DECODE */
+            if (((g_guard * g_guard - g_guard) & 1) == 0)   /* opaque: always true */
+                st = 2;
+            else
+                st = 5;                                  /* bogus: unreachable */
+            break;
+        case 2:                                          /* EXECUTE */
+            switch (op) {
+            case OP_NOP: st = 0; break;
+            case OP_PUSH:
+                if (ip < n && sp < 32) stack[sp++] = code[ip];
+                ip++;
+                st = 0; break;
+            case OP_ADD:
+                b = sp ? stack[--sp] : 0; a = sp ? stack[--sp] : 0;
+                if (sp < 32) stack[sp++] = (a + b) & 0xff;
+                st = 0; break;
+            case OP_XOR:
+                b = sp ? stack[--sp] : 0; a = sp ? stack[--sp] : 0;
+                if (sp < 32) stack[sp++] = (a ^ b) & 0xff;
+                st = 0; break;
+            case OP_MUL:
+                b = sp ? stack[--sp] : 0; a = sp ? stack[--sp] : 0;
+                if (sp < 32) stack[sp++] = (a * b) & 0xff;
+                st = 0; break;
+            case OP_DUP:
+                if (sp > 0 && sp < 32) { stack[sp] = stack[sp - 1]; sp++; }
+                st = 0; break;
+            case OP_JMP:
+                if (ip >= n) { st = 4; break; }
+                ip += (signed char)code[ip];
+                ip++;
+                st = 0; break;
+            case OP_HALT: st = 3; break;
+            default: st = 5; break;
+            }
+            break;
+        case 3:                                          /* DONE */
+            result = sp ? stack[sp - 1] : 0;
+            running = 0;
+            break;
+        case 4:                                          /* END (fell off code) */
+            result = sp ? stack[sp - 1] : 0;
+            running = 0;
+            break;
+        case 5:                                          /* BOGUS */
+            result = -1;
+            running = 0;
+            break;
+        default:
+            running = 0;
+            break;
+        }
+    }
+    return result;
+}
+
+/* --------------------------------------------------------------------- */
+/* passphrase gate: non-linear map, control-flow-flattened              */
+/* --------------------------------------------------------------------- */
+static int vault_len(void)
+{
+    return (int)(vault[0] | (vault[1] << 8) | (vault[2] << 16) |
+                 ((unsigned)vault[3] << 24));
+}
+
+static int vault_accepts(const unsigned char *in, int len)
+{
+    int need = vault_len();
+    int i = 0, ok = 1, st = 0;
+    unsigned v;
+
+    while (1) {
+        switch (st) {                                    /* flattened dispatch */
+        case 0:                                          /* length gate */
+            if (len != need) { ok = 0; st = 90; break; }
+            i = 0;
+            st = 10; break;
+        case 10:                                         /* loop test */
+            if (i >= need) { st = 80; break; }
+            st = 20; break;
+        case 20:                                         /* v = SBOX[in[i]] */
+            v = vault[VAULT_SBOX + in[i]];
+            st = 30; break;
+        case 30:                                         /* v = (v*K[i]) mod 251 */
+            v = (v * vault[VAULT_K + i]) % MOD;
+            st = 40; break;
+        case 40:                                         /* compare */
+            if ((((v ^ v) + g_guard + MOD) % MOD) == 0) { /* opaque: always true */
+                if (v != vault[VAULT_T + i]) { ok = 0; st = 90; break; }
+                st = 50; break;
+            }
+            st = 90; break;
+        case 50:                                         /* advance */
+            i++;
+            st = 10; break;
+        case 80:                                         /* all bytes matched */
+            ok = 1; st = 90; break;
+        case 90:
+            return ok;
+        default:
+            return 0;
+        }
+    }
+}
+
+int main(int argc, char **argv)
+{
+    if (is_being_debugged()) {
+        puts("[zancudo] link integrity fault 0x0D34D -- station offline.");
+        return 3;
+    }
+    if (argc != 2) {
+        puts("usage: zancudo_gate <passphrase>");
+        return 2;
+    }
+    if (vm_run(g_bytecode, (int)sizeof(g_bytecode)) != VM_TARGET) {
+        puts("[zancudo] firmware checksum fault 0x0B0LT -- station offline.");
+        return 4;
+    }
+    if (vault_accepts((const unsigned char *)argv[1], (int)strlen(argv[1]))) {
+        puts("== ZANCUDO DEADBOLT RELEASED ==");
+        puts("Access control station online. Hangar 13 is yours.");
+        return 0;
+    }
+    puts("[zancudo] deadbolt holds -- wrong combination.");
+    return 1;
+}
+'''
+
+
+def render_c(vault: bytes, bytecode, vm_target: int) -> str:
+    ln = (len(vault) - VAULT_HDR - 256) // 2
+    arrays = ("/* embedded data vault: [u32 len][SBOX 256][K len][TARGET len] */\n"
+              + _c_array("unsigned char vault[VAULT_N]", vault) + "\n\n"
+              + "/* opaque-predicate guard (always 0 at runtime) */\n"
+              + "volatile int g_guard = 0;\n\n"
+              + "/* constant VM bytecode blob used as an integrity gate */\n"
+              + _c_array("unsigned char g_bytecode[]", bytecode) + "\n")
+    prologue = C_PROLOGUE + (f"#define PASS_LEN   {ln}\n"
+                             f"#define VM_TARGET  {vm_target:#04x}\n\n")
+    return prologue + arrays + C_EPILOGUE
+
+
+def main():
+    vault, k, target, sbox, n = build_vault()
+    bytecode = build_bytecode()
+    vm_target = sim_bytecode(bytecode)
+
+    src = WS / "zancudo_gate.c"
+    src.write_text(render_c(vault, bytecode, vm_target), encoding="utf-8", newline="\n")
+    print(f"[H01] wrote {src} (vault {len(vault)} bytes, pass len {n}, vm_target {vm_target:#04x})")
+
+    src_wsl = wsl_path(src)
+    out_wsl = wsl_path(OUT / "zancudo_gate")
+    cmd = (f"gcc -O2 -o /tmp/zancudo_gate {src_wsl} && "
+           f"strip -s /tmp/zancudo_gate && "
+           f"cp /tmp/zancudo_gate {out_wsl} && chmod +x {out_wsl} && echo BUILD_OK")
+    r = subprocess.run(["wsl.exe", "-e", "bash", "-lc", cmd],
+                       capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    sys.stderr.write(r.stderr)
+    assert r.returncode == 0 and "BUILD_OK" in r.stdout, "WSL build failed"
+
+    # sanity: solver-side reconstruction must recover the flag
+    fb = bytearray()
+    for idx in range(n):
+        r0 = (target[idx] * pow(k[idx], -1, MOD)) % MOD
+        cand = [b for b in range(256) if sbox[b] % MOD == r0]
+        assert len(cand) == 1, (idx, cand)
+        fb.append(cand[0])
+    assert fb.decode() == FLAG, fb
+    print(f"[H01] round-trip OK -> {FLAG}")
+
+    ops = OUT / "OPERATIONS.txt"
+    ops.write_text(OPERATIONS_TXT, encoding="utf-8", newline="\n")
+    assert FLAG.encode() not in ops.read_bytes(), "flag leaked into participant file"
+    print(f"[H01] wrote {ops}")
+    print(f"[H01] built ELF -> {OUT / 'zancudo_gate'}")
+
+
+if __name__ == "__main__":
+    main()

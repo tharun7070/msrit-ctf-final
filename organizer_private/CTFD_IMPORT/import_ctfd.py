@@ -40,13 +40,13 @@ def ensure_manifest(root,manifest):
   for fn in ch['files']:
    assert Path(fn).name==fn and (directory/fn).is_file() and (directory/fn).stat().st_size>0
   assert len(ch['hints'])==3
- assert len(ids)==15 and expected==1550
+ assert len(ids)==25 and expected==2200
  return manifest['challenges']
 
 def run(args,session=None):
  man=json.loads(MANIFEST.read_text())
  challenges=ensure_manifest(ROOT,man)
- print('FLAG THEFT AUTO: 15 validated manifests / 1,550 points')
+ print('FLAG THEFT AUTO: 25 validated manifests / 2,200 points')
  if not args.apply:
   print('DRY RUN — no network calls or changes; flags are never printed')
   for ch in challenges:

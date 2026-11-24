@@ -16,6 +16,10 @@ __pycache__/
 .env.*
 !.env.example
 
+# ── Private organizer material (flags, answer keys, credentials) ───
+# Tracked ONLY because this repository is private.
+# Delete these two paths from Git before ever making the repo public.
+
 # ── OS / editors ───────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

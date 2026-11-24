@@ -5,12 +5,15 @@
      canonical flag.
   2. Asserts a WRONG flag is rejected: corrupt one ciphertext byte that maps
      (through the lane transpose) onto a byte inside the flag body, and confirm
-     the decoded payload no longer matches (and that the solver's equality
-     guard would fire).
+     the decoded payload no longer matches.
+  3. Asserts the ROUND-ROBIN STARTING LANE actually matters: decoding with a
+     different (wrong) lane offset must NOT recover the flag, since it re-groups
+     the sample bytes into mixed register streams.
 
-decode() re-derives the plaintext from radio_packet.bin using the same public
-helpers exported by solve_m04 (S.HEADER, S.bytes_to_bits, S.berlekamp_massey,
-S.extend, S.bits_to_bytes, S.unpermute).
+decode() re-derives the plaintext from radio_packet.bin using the public
+helpers exported by solve_m04 (S.parse_header, S.recover_mask, S.unpermute,
+S.permutation, ...). decode(..., force_off=o) optionally forces a lane offset
+to exercise the offset trap.
 """
 import re
 import subprocess
@@ -22,25 +25,31 @@ import lib_fta as L
 import solve_m04 as S
 
 
-def decode(packet: bytes) -> bytes:
+def decode(packet: bytes, force_off=None) -> bytes:
     out = L.out_dir("M04")
     sample = (out / "keystream_sample.bin").read_bytes()
 
-    # unmask the surviving header prefix -> exposed mask bytes
-    exposed = bytes(s ^ h for s, h in zip(sample, S.HEADER))[:S.REDACT_FROM]
-    lane_a = exposed[0::2]
-    lane_b = exposed[1::2]
-    a_bits = S.bytes_to_bits(lane_a)
-    b_bits = S.bytes_to_bits(lane_b)
-    Ca, da = S.berlekamp_massey(a_bits)
-    Cb, db = S.berlekamp_massey(b_bits)
+    if force_off is None:
+        mask = S.recover_mask(sample, packet, len(packet) - S.HDR_LEN)
+    else:
+        # deliberately use the wrong lane offset (same demux code path)
+        off, burst, bdeg, btaps = S.parse_header(packet)
+        exposed = bytes(s ^ h for s, h in
+                        zip(sample, S.HEADER))[:S.REDACT_FROM]
+        lanes = S.demux(exposed, burst, force_off)
+        counts = S.lane_counts(len(packet) - S.HDR_LEN, burst, force_off)
+        streams = [None, None, None]
+        for r in (0, 1):
+            bits = S.bytes_to_bits(bytes(lanes[r]))
+            C, dd = S.berlekamp_massey(bits)
+            streams[r] = S.bits_to_bytes(S.extend(bits, C, dd, counts[r] * 8))
+        known = S.bytes_to_bits(bytes(lanes[S.BEACON]))[:counts[S.BEACON] * 8]
+        seed = S.recover_beacon_seed(known, btaps)
+        streams[S.BEACON] = L.lfsr_keystream(seed, btaps, counts[S.BEACON])
+        mask = S.assign(len(packet) - S.HDR_LEN, streams, burst, force_off)
 
-    n = len(packet)
-    a = S.bits_to_bytes(S.extend(a_bits, Ca, da, ((n + 1) // 2) * 8))
-    b = S.bits_to_bytes(S.extend(b_bits, Cb, db, (n // 2) * 8))
-    mask = bytes(a[j // 2] if j % 2 == 0 else b[j // 2] for j in range(n))
-
-    masked = S.unpermute(packet)               # undo the lane transpose first
+    ct = packet[S.HDR_LEN:]
+    masked = S.unpermute(ct)               # undo the lane transpose first
     return bytes(p ^ k for p, k in zip(masked, mask))
 
 
@@ -55,18 +64,19 @@ def main():
     assert expected in r.stdout, f"solver stdout: {r.stdout!r}"
     print(r.stdout.strip())
 
-    # 2. wrong-flag rejection
     out = L.out_dir("M04")
     packet = (out / "radio_packet.bin").read_bytes()
+    off, burst, bdeg, btaps = S.parse_header(packet)
+
     pt = decode(packet)
-    off = pt.index(b"FTA{")
+    off_pt = pt.index(b"FTA{")
     good = re.search(rb"FTA\{[^}]+\}", pt).group(0).decode()
     assert good == L.FLAGS["M04"], good
 
-    # map the plaintext offset of a flag-body byte back to its packet index
-    perm = S.permutation(len(packet))         # payload[perm[p]] == masked[p]
+    # 2. wrong-flag rejection: map a flag-body plaintext byte back to its ct index
+    perm = S.permutation(len(packet) - S.HDR_LEN)   # ct[perm[p]] == masked[p]
     bad = bytearray(packet)
-    bad[perm[off + 6]] ^= 0x01                # corrupt inside the flag body
+    bad[S.HDR_LEN + perm[off_pt + 6]] ^= 0x01       # corrupt inside the flag body
     m = re.search(rb"FTA\{[^}]+\}", decode(bytes(bad)))
     assert m, "no flag after corruption"
     wrong = m.group(0).decode()
@@ -78,7 +88,16 @@ def main():
     except AssertionError:
         pass
 
-    print(f"[M04] VALIDATE OK (good={good!r}, wrong rejected={wrong!r})")
+    # 3. the lane offset in the sync header must matter
+    other = next(o for o in (0, 1, 2) if o != off)
+    bad_mask = decode(packet, force_off=other)
+    m2 = re.search(rb"FTA\{[^}]+\}", bad_mask)
+    off_ok = (m2 is not None and m2.group(0).decode() == L.FLAGS["M04"])
+    assert not off_ok, f"wrong lane offset {other} still decoded the flag"
+
+    print(f"[M04] VALIDATE OK (lane_off={off} burst={burst} "
+          f"beacon_deg={bdeg}, good={good!r}, wrong rejected={wrong!r}, "
+          f"wrong-offset {other} rejected)")
 
 
 if __name__ == "__main__":

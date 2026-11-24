@@ -1,0 +1,24 @@
+NIGHTSHIFT LOADER -- FIELD NOTE
+==============================
+
+The fixer's handset gave up a single blob we are calling the Nightshift
+loader.  It is not an ELF and it is not any container our tools recognise --
+the crew rolled their own, and this note is the only paperwork that survived.
+
+What triage (unpack_stub.py) will tell you
+------------------------------------------
+  * the section table is authoritative and is walked in order;
+  * the retained DBUG record is the cached build flag -- it is XOR-masked with
+    0x5A and base64-encoded, and the stub prints it cleanly;
+  * the KEYT table is the dispatch key, used exactly as it is stored.
+
+What triage cannot read, and we have not cracked
+------------------------------------------------
+  * PACK is the live body.  It carries its own 32-bit checksum, so a correct
+    read verifies itself and a wrong one does not: a route that disagrees with
+    the checksum is wrong, however tidy its output looks.
+  * CHST is not "reserved scratch".  Nobody will say what it is.
+  * The header's spare byte was never documented.
+
+Deliverable: the loader's dispatch flag.  The loader also embeds a dispatch
+token -- the next drop (the config) will not open without it.

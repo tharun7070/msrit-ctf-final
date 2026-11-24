@@ -47,7 +47,7 @@ Open http://localhost:8000 and follow the setup wizard:
 - Competition name: `FLAG THEFT AUTO`
 - Mode: `Teams`
 - Team size max: `3`
-- Registration: `Open` (or restricted by token for the event)
+- Registration: `Closed` (crews are pre-provisioned — see step 6)
 
 ### 5. Import challenges
 
@@ -58,19 +58,29 @@ $env:CTFD_TOKEN = "your_actual_token_here"
 $env:CTFD_URL   = "http://localhost:8000"
 
 # Dry run first (validates without importing):
-python d:\ctf\FLAG_THEFT_AUTO_ORGANIZER_PRIVATE\ORGANIZER\CTFD_IMPORT\import_ctfd.py
+python d:\ctf\FLAG_THEFT_AUTO_FINAL\organizer_private\CTFD_IMPORT\import_ctfd.py
 
-# Import all 15 challenges:
-python d:\ctf\FLAG_THEFT_AUTO_ORGANIZER_PRIVATE\ORGANIZER\CTFD_IMPORT\import_ctfd.py --apply --allow-http
+# Import all 25 challenges:
+python d:\ctf\FLAG_THEFT_AUTO_FINAL\organizer_private\CTFD_IMPORT\import_ctfd.py --apply --allow-http
 ```
 
-### 6. Access the site
+### 6. Provision crew credentials
+
+Public registration is closed so the same physical crew cannot create multiple teams. Provision one team + member logins per crew via the admin API:
+
+```powershell
+# roster.csv: team_name,member1[,member2][,member3]
+python d:\ctf\FLAG_THEFT_AUTO_FINAL\organizer_private\CTFD_IMPORT\provision_teams.py --roster roster.csv --apply --allow-http
+```
+
+This creates each team and its member logins, disables public registration (`registration_visibility=private`), and writes the private `organizer_private\team_credentials.csv`. Distribute one row-group per crew.
+
+### 7. Access the site
 
 | URL | Purpose |
 |-----|---------|
 | http://localhost | FLAG THEFT AUTO landing page (cinematic) |
-| http://localhost/login | Crew login |
-| http://localhost/register | Join the underground |
+| http://localhost/login | Crew login (use pre-issued credentials) |
 | http://localhost/dashboard | Player HUD (authenticated) |
 | http://localhost/missions | Mission board |
 | http://localhost/leaderboard | Live leaderboard |

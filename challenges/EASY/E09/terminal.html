@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chop Shop Terminal</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0e0a; color: #7CFC7C;
+    font-family: "Courier New", ui-monospace, monospace; }
+  .wrap { max-width: 720px; margin: 6vh auto; padding: 0 18px; }
+  h1 { font-size: 20px; letter-spacing: 3px; color: #b6ffb6; text-transform: uppercase; }
+  .sub { color: #3f7a3f; font-size: 12px; margin-bottom: 22px; }
+  .console { background: #051105; border: 1px solid #1f5c1f; border-radius: 6px;
+    padding: 18px; box-shadow: inset 0 0 40px #0b2b0b; }
+  .row { display: flex; gap: 10px; margin-top: 12px; }
+  input { flex: 1; background: #0a1a0a; color: #d8ffd8; border: 1px solid #2f7a2f;
+    padding: 10px 12px; border-radius: 4px; font-family: inherit; font-size: 14px; }
+  input:focus { outline: none; border-color: #7CFC7C; }
+  button { background: #145214; color: #d8ffd8; border: 1px solid #2f7a2f;
+    padding: 10px 16px; border-radius: 4px; cursor: pointer; font-family: inherit;
+    letter-spacing: 2px; }
+  button:hover { background: #1c6b1c; }
+  #log { margin-top: 16px; white-space: pre-wrap; min-height: 24px; font-weight: bold; }
+  .ok { color: #7CFC7C; }
+  .no { color: #ff5b5b; }
+  .hint { color: #3f7a3f; font-size: 12px; margin-top: 18px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Chop Shop Terminal</h1>
+    <div class="sub">SANTOS CUSTOMS // token verifier v0xE09 :: offline build</div>
+    <div class="console">
+      <div>$ validate --token</div>
+      <div class="row">
+        <input id="tok" placeholder="paste shop token" autocomplete="off" spellcheck="false">
+        <button id="go">VERIFY</button>
+      </div>
+      <div id="log">&gt; awaiting token...</div>
+    </div>
+    <div class="hint">client-side check only. no network. entries stay on the bench.</div>
+  </div>
+<script src="chopshop.js"></script>
+<script>
+  function _run() {
+    var v = document.getElementById('tok').value;
+    var log = document.getElementById('log');
+    var ok = false;
+    try { ok = check(v); } catch (e) { ok = false; }
+    if (ok) { log.className = 'ok'; log.textContent = 'ACCESS GRANTED'; }
+    else { log.className = 'no'; log.textContent = 'DENIED'; }
+  }
+  document.getElementById('go').addEventListener('click', _run);
+  document.getElementById('tok').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { _run(); }
+  });
+</script>
+</body>
+</html>

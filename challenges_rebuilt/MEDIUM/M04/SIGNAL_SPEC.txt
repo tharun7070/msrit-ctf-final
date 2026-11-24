@@ -6,19 +6,41 @@ Foreword
   tagged (RECORDED) are raw; values tagged (FIELD-INTEL) are unverified and
   may describe a superseded firmware revision.
 
-Transmission masking
-  Two short feedback registers -- call them ALPHA and BRAVO -- feed the
-  masking stream. Each register is clocked once per bit and assembles its
-  output most-significant-bit first into one mask byte per eight ticks. The
-  two registers' bytes are then combined into a single mask stream by the
-  transmitter. Seeds and tap sets are unit secrets and are NOT recorded here.
+Cleartext sync header (RECORDED - participant-readable)
+  radio_packet.bin begins with a 12-byte CLEARTEXT sync block:
+    [0:4]   ASCII magic "RDRX"
+    [4]     format version (1)
+    [5]     ROUND-ROBIN STARTING LANE o   (0..2)   <- the lane offset
+    [6]     LANE BURST LENGTH b           (bytes emitted per register visit)
+    [7]     beacon register degree Lb
+    [8:12]  beacon register tap bitmask, little-endian
+            (bit t set  =>  the beacon register taps state bit b_t)
+  The lane-interleaved ciphertext begins at offset 12.
+
+Transmission masking (RECORDED)
+  Three short feedback registers -- R0, R1, R2 -- feed the masking stream.
+  Each register is clocked once per bit and assembles its output
+  most-significant-bit first into one mask byte per eight ticks. The
+  transmitter visits the registers in the FIXED cyclic order R0, R1, R2 and,
+  on each visit, emits b consecutive mask bytes from that register. The visit
+  order begins at register R(o): the g-th visit (g = 0,1,2,...) draws its bytes
+  from register R((g + o) mod 3). The bytes drawn from any single register are
+  therefore contiguous (the i-th byte drawn from a register is that register's
+  i-th stream byte). b > 1, so choosing the wrong starting lane o re-groups the
+  bytes into mixed streams -- find o in the sync header before de-multiplexing.
+  Unit secrets are the R0/R1 taps and all seeds. The beacon register R2 is the
+  exception: its degree Lb and tap mask are carried in the sync header, so R2's
+  state can be recovered by solving its (small) linear output system over GF(2)
+  rather than by Berlekamp-Massey.
 
   (FIELD-INTEL, UNVERIFIED - author no longer with the unit)
-    * The two registers' byte outputs are XOR-combined into the mask.
-    * ALPHA taps: b23 and b18, seed 0x00BEEF.
-    * BRAVO taps: b19 and b6,  seed 0x0F1E2D.
-  Treat the whole block above as suspect; it did not reproduce a known
-  header during the analyst's first pass.
+    * The three registers' byte outputs are XOR-combined into the mask.
+    * R0 taps: b11 and b5,  seed 0x0BEEF.
+    * R1 taps: b13 and b7,  seed 0x0F1E2D.
+    * R2 taps: b17 and b9,  seed 0x01234.
+    * Lane burst length is 4 and the visit order always starts at R0.
+  Treat the whole block above as suspect; it did not reproduce a known header
+  during the analyst's first pass.
 
 Known plaintext header (exactly 64 bytes, ' ' = U+0020 right padding):
 
@@ -28,8 +50,8 @@ Known plaintext header (exactly 64 bytes, ' ' = U+0020 right padding):
 
 Capture integrity
   The recorder's ring buffer faulted mid-capture and zero-filled the tail of
-  the stored sample. Only the leading 38 of the 64 channel bytes survived;
-  bytes [38:64] read as 0x00 and are LOST -- do NOT feed them to the coder as
+  the stored sample. Only the leading 15 of the 64 channel bytes survived;
+  bytes [15:64] read as 0x00 and are LOST -- do NOT feed them to the coder as
   if they were header bytes.
 
 Post-mask transform
@@ -39,15 +61,17 @@ Post-mask transform
   is contradicted by the current firmware's lane count.
 
 Files
-  keystream_sample.bin   bytes [0:38] = header XOR mask[0:38]; bytes [38:64]
+  keystream_sample.bin   bytes [0:15] = header XOR mask[0:15]; bytes [15:64]
                          are 0x00 (redacted / lost on capture).
-  radio_packet.bin       the intercepted payload = lane_interleave(message
+  radio_packet.bin       12-byte cleartext sync header + lane_interleave(message
                          XOR mask[0:len]).
 
 Task
-  Recover the mask generator structure from the surviving sample bytes,
-  regenerate as much mask as the packet needs, undo the lane interleave, and
-  read the payload. The flag (FTA{...}) is inside the decoded message.
+  Find the lane offset in the sync header, de-multiplex the surviving sample
+  bytes into the three registers (two via Berlekamp-Massey, the degree-23
+  beacon via its published taps + a tiny GF(2) solve), regenerate as much mask
+  as the packet needs, undo the lane interleave, and read the payload. The flag
+  (FTA{...}) is inside the decoded message.
 
 Masked byte semantics
   masked_byte  = plaintext_byte XOR mask_byte    (bitwise XOR, 8 bits)

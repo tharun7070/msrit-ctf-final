@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""M05 - Debugging the Dispatch (stacked concurrency + multi-bug stage 2).
+"""M05 - Debugging the Dispatch (stacked concurrency + multi-bug stage 2 +
+outer run-length / rotating-XOR layer).
 
 Builds the participant package for M05 in L.out_dir("M05"):
 
@@ -16,17 +17,25 @@ The intended (correct) behaviour seals
     out.bin = b85encode(zlib.compress(json.dumps(manifest)))
 
 where the manifest carries the *source of stage 2* masked by a keystream keyed
-on the node's final (ledger, dispatched) pair.  Stage 2 has TWO independent,
-non-obvious bugs:
+on the node's final (ledger, dispatched) pair.
 
-  (a) a fixed-width 32-bit rotate whose overflow mask is missing, and
-  (b) a length-prefixed record parsed with the wrong endianness and an
-      off-by-one field offset.
+Recovering the flag is a three-layer peel:
 
-Fixing both lets stage 2 emit an outer payload that is itself one more
-reversible layer (a base64 of the flag bytes XORed with a fixed key).  A
-partial fix instead trips the record's trailer check and falls back to an
-archived DECOY flag.
+  stage 2 (depot reconciliation) has THREE independent, non-obvious bugs:
+    (a) a fixed-width 32-bit rotate whose overflow mask is missing;
+    (b) a length-prefixed record parsed with the wrong endianness and an
+        off-by-one field offset; and
+    (c) an alignment "correction" that reads the record trailer one byte late
+        whenever the record length is a multiple of 4 (which every base64
+        payload is) -- a participant who unit-tests their fix on a short,
+        non-aligned sample record will think stage 2 is repaired and still
+        only recover the archived DECOY value.
+
+  Once stage 2 is fully repaired its payload is itself a wrapped stream: the
+  stage-3 transform (a run-length expansion followed by a per-index rotating
+  XOR) under a fixed base64/rotating-key outer wrap.  A partial fix that only
+  undoes the wrap stops at an unreadable stage-3 blob; a partial *script* fix
+  trips stage 2's trailer check and falls back to the archived DECOY flag.
 
 Private organizer tooling.  The flag never appears in any shipped artifact.
 """
@@ -48,10 +57,13 @@ WORKER_THREADS = 8
 
 # Fixed stage-2 lane tags and record geometry.
 S2_TAGS = [random.Random(0xF7A50C11).getrandbits(32) for _ in range(40)]
-RECORD_LEN = 96
+RECORD_LEN = 128
 
-# Third (outer) layer: fixed rotating key over the flag bytes, then base64.
+# Outer wrap: fixed rotating key over the stage-3 stream, then base64.
 THIRD_KEY = bytes((0x5A, 0xC3, 0x77, 0x21))
+
+# Stage-3: run-length expansion followed by a per-index rotating XOR.
+ROT_SEED = 0x9E3779B9
 
 # Decoys: a plausible wrong flag reachable by a partial fix / a shallow grep.
 DECOY_ARCHIVED = "FTA{d15p4tch_l3g4cy_p4th_d3c0y}"
@@ -59,8 +71,8 @@ DECOY_NOTES = "FTA{v01d_s3gm3nt_n0t_d15p4tch3d}"
 
 # ----------------------------------------------------------------------------
 # Stage 2 logic.  The variant embedded in the manifest omits the 32-bit rotate
-# mask and mis-frames the record (the shipped bugs); the corrected variant
-# restores both (the solve).
+# mask, mis-frames the record AND mis-aligns the trailer (the shipped bugs);
+# the corrected variant restores all three (the solve).
 # ----------------------------------------------------------------------------
 def _rotl32(x: int, r: int, masked: bool) -> int:
     if masked:
@@ -88,7 +100,8 @@ def s2_keystream(seed: int, length: int) -> bytes:
     return bytes(out)
 
 
-def s2_process(tags, sealed, rot_masked: bool, rec_buggy: bool) -> bytes:
+def s2_process(tags, sealed, rot_masked: bool = True, rec_buggy: bool = False,
+               align_buggy: bool = False) -> bytes:
     """Reimplementation of the shipped stage-2 program, parametrised on which
     bugs are present.  Raises ValueError when the record trailer rejects."""
     h = 0x1BADB002
@@ -106,25 +119,61 @@ def s2_process(tags, sealed, rot_masked: bool, rec_buggy: bool) -> bytes:
     else:
         n = int.from_bytes(plain[0:2], "big")
         body = plain[2:2 + n]
-    trailer = int.from_bytes(plain[2 + n:6 + n], "big")
+    # bug (c): the trailer is read one byte late for 4-byte-aligned records.
+    span = n + 1 if (align_buggy and (n & 3) == 0) else n
+    trailer = int.from_bytes(plain[2 + span:6 + span], "big")
     if (sum(body) & 0xFFFF) != trailer:
         raise ValueError("reconciliation record failed its trailer check")
     return body
 
 
 # ----------------------------------------------------------------------------
-# Third (outer) layer.
+# Stage 3 (outer payload layer): run-length expansion + per-index rotating XOR.
 # ----------------------------------------------------------------------------
-def third_layer_encode(flag: str) -> bytes:
-    fb = flag.encode()
-    x = bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(fb))
+def stage3_encode(fb: bytes) -> bytes:
+    """Run-length expand ``fb`` into (byte, run-length) pairs (runs capped at
+    255), then XOR every byte with a key that rotates once per index."""
+    expanded = bytearray()
+    i, n = 0, len(fb)
+    while i < n:
+        j = i + 1
+        while j < n and fb[j] == fb[i] and (j - i) < 255:
+            j += 1
+        expanded.append(fb[i])
+        expanded.append(j - i)
+        i = j
+    rot = ROT_SEED
+    out = bytearray(len(expanded))
+    for k, b in enumerate(expanded):
+        rot = ((rot << 1) | (rot >> 31)) & MASK32
+        out[k] = b ^ ((rot >> 7) & 0xFF)
+    return bytes(out)
+
+
+def stage3_decode(data: bytes) -> bytes:
+    """Inverse of :func:`stage3_encode`."""
+    rot = ROT_SEED
+    expanded = bytearray(len(data))
+    for k, b in enumerate(data):
+        rot = ((rot << 1) | (rot >> 31)) & MASK32
+        expanded[k] = b ^ ((rot >> 7) & 0xFF)
+    fb = bytearray()
+    k = 0
+    while k < len(expanded):
+        fb.extend([expanded[k]] * expanded[k + 1])
+        k += 2
+    return bytes(fb)
+
+
+def wrap_encode(data: bytes) -> bytes:
+    """Fixed rotating-key XOR then base64 (keeps the record payload printable)."""
+    x = bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(data))
     return base64.b64encode(x)
 
 
-def third_layer_decode(payload: bytes) -> str:
+def wrap_decode(payload: bytes) -> bytes:
     x = base64.b64decode(payload)
-    fb = bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(x))
-    return fb.decode("ascii")
+    return bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(x))
 
 
 # ----------------------------------------------------------------------------
@@ -143,7 +192,7 @@ def build_record(payload: bytes) -> bytes:
 
 def build_stage2_source() -> str:
     """Return the stage-2 script text (buggy / shipped variant)."""
-    payload = third_layer_encode(L.FLAGS["M05"])
+    payload = wrap_encode(stage3_encode(L.FLAGS["M05"].encode()))
     plain = build_record(payload)
     ks = s2_keystream(s2_signature(S2_TAGS, masked=True), len(plain))
     sealed = bytes(a ^ b for a, b in zip(plain, ks))
@@ -212,7 +261,8 @@ def build_stage2_source() -> str:
         'def extract_record(plain):\n'
         '    n = int.from_bytes(plain[0:2], "little")\n'
         '    body = plain[3:3 + n]\n'
-        '    trailer = int.from_bytes(plain[2 + n:6 + n], "big")\n'
+        '    span = n + 1 if (n & 3) == 0 else n\n'
+        '    trailer = int.from_bytes(plain[2 + span:6 + span], "big")\n'
         '    if (sum(body) & 0xFFFF) != trailer:\n'
         '        raise ValueError("reconciliation record failed its trailer check")\n'
         '    return body\n'
@@ -332,7 +382,14 @@ class DispatchNode:
             self.clear_packet(pkt)
 
     def run(self):
-        workers = [threading.Thread(target=self._worker)
+        # release every worker at once so the whole pool contends for the queue
+        gate = threading.Barrier(WORKER_THREADS)
+
+        def worker():
+            gate.wait()
+            self._worker()
+
+        workers = [threading.Thread(target=worker)
                    for _ in range(WORKER_THREADS)]
         for w in workers:
             w.start()
@@ -411,7 +468,8 @@ Reconciliation
 
     The stage-2 program is not the answer.  It unmasks one further record whose
     trailer must agree with its own payload; the payload that survives is still
-    wrapped exactly once more.
+    wrapped by an additional reversible layer (a run-length stream under a
+    rotating key) before the flag can be read.
 """
 
 
@@ -443,27 +501,44 @@ def main():
     (out / "README.txt").write_text(README, encoding="utf-8")
 
     # --- organizer self-checks -------------------------------------------------
+    # (0) stage-3 round-trips and its wrapped output stays 4-byte aligned
+    inner = stage3_encode(flag.encode())
+    assert stage3_decode(inner) == flag.encode(), "stage-3 round-trip failed"
+    payload = wrap_encode(inner)
+    assert len(payload) % 4 == 0, "record payload must be 4-byte aligned"
+
     # (1) the corrected stage-2 recovers the outer payload, which decodes to flag
-    payload = third_layer_encode(flag)
     plain = build_record(payload)
     ks = s2_keystream(s2_signature(S2_TAGS, True), len(plain))
     sealed = bytes(a ^ b for a, b in zip(plain, ks))
-    good = s2_process(S2_TAGS, sealed, rot_masked=True, rec_buggy=False)
+    good = s2_process(S2_TAGS, sealed, True, False, False)
     assert good == payload, "correct stage-2 payload mismatch"
-    assert third_layer_decode(good) == flag, "third layer did not yield the flag"
+    assert stage3_decode(wrap_decode(good)) == flag.encode(), \
+        "outer layers did not yield the flag"
 
-    # (2) the two bugs are independent; each partial variant must be rejected
-    assert s2_signature(S2_TAGS, False) != s2_signature(S2_TAGS, True), \
-        "rotate mask must matter"
-    for rot_masked, rec_buggy, label in (
-            (True, True, "record bug only"),
-            (False, False, "rotate bug only"),
-            (False, True, "both bugs")):
+    # (2) the three bugs are independent; every wrong combination is rejected
+    import itertools
+    for rot_masked, rec_buggy, align_buggy in itertools.product((False, True),
+                                                                repeat=3):
+        if (rot_masked, rec_buggy, align_buggy) == (True, False, False):
+            continue
         try:
-            bad = s2_process(S2_TAGS, sealed, rot_masked, rec_buggy)
+            bad = s2_process(S2_TAGS, sealed, rot_masked, rec_buggy, align_buggy)
         except ValueError:
             continue  # fell through to the archived decoy -> good
-        assert bad != payload and third_layer_decode(bad) != flag, label
+        assert bad != payload, (rot_masked, rec_buggy, align_buggy)
+        try:
+            assert stage3_decode(wrap_decode(bad)) != flag.encode()
+        except Exception:
+            pass  # a wrong payload must never decode to the flag either
+
+    # (2b) the "partial script fix" (bugs a+b repaired, alignment bug left in)
+    # must trip the trailer check and fall through to ARCHIVED_VALUE
+    try:
+        s2_process(S2_TAGS, sealed, True, False, True)
+        raise AssertionError("alignment bug must reject the shipped record")
+    except ValueError:
+        pass
 
     # (3) the shipped stage-2 program itself falls back to the decoy
     ns = {"__name__": "stage2_check"}
@@ -482,6 +557,7 @@ def main():
     except ValueError:
         pass
     assert ns["ARCHIVED_VALUE"] == DECOY_ARCHIVED
+    assert ns["ARCHIVED_VALUE"] != flag and DECOY_NOTES != flag
 
     # (4) correctness sanity on the dispatcher aggregation
     assert acc_correct == sum(p["tag"] for p in packets) % (1 << 64)
@@ -492,8 +568,8 @@ def main():
         assert flag not in text, name
 
     print("[M05] wrote %s" % out)
-    print("[M05] packets=%d stage2_src_bytes=%d correct_ledger=%d payload=%r"
-          % (PACKET_COUNT, len(stage2_src), acc_correct, payload[:16]))
+    print("[M05] packets=%d stage2_src_bytes=%d correct_ledger=%d payload_len=%d"
+          % (PACKET_COUNT, len(stage2_src), acc_correct, len(payload)))
 
 
 if __name__ == "__main__":

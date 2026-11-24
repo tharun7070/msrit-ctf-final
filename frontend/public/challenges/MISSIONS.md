@@ -7,15 +7,25 @@
 | E03 | Easy | Sandy Shores Hidden Stash | ext2 recovery + multi-byte keyed mask | 50 |
 | E04 | Easy | Del Perro Camera Roll | Gated bit-plane stego + geometry-keyed mask | 50 |
 | E05 | Easy | Wrong Extension, Right Exit | Triple-format polyglot + PBKDF2 AES + 3-table database | 50 |
-| M01 | Medium | Fleeca Vault Glitch | Two-stage stored injection + DB-keyed hashing + session gate | 100 |
-| M02 | Medium | Airport Ghost Flight | Nested frames + scoped seal + sequence-keyed mask | 100 |
-| M03 | Medium | LSPD Midnight Audit | Keyed hash chain + block checkpoints + nested delta | 100 |
-| M04 | Medium | Underground XOR Radio | Interleaved LFSRs + partial KPA + lane transpose | 100 |
-| M05 | Medium | Debugging the Dispatch | Two-structure race + dual-bug stage 2 + final wrap | 100 |
+| M01 | Medium | Fleeca Vault Glitch | Two-stage stored injection + un-reversed alias + veiled columns + session gate | 100 |
+| M02 | Medium | Airport Ghost Flight | IPv4 fragmentation + nested frames + scoped seal + nonce-keyed mask | 100 |
+| M03 | Medium | LSPD Midnight Audit | Keyed chain + hidden salt + checkpoint roots + triply-nested delta | 100 |
+| M04 | Medium | Underground XOR Radio | Three interleaved LFSRs + header lane offset + partial KPA + lane transpose | 100 |
+| M05 | Medium | Debugging the Dispatch | Serialised race + three-bug stage 2 + stage-3 unwrap | 100 |
 | H01 | Hard | Zancudo Deadbolt | Anti-analysis traps + chained VMs + runtime-keyed vault | 160 |
 | H02 | Hard | The Recursive Freeway | Weighted graph isomorphism + spectral fingerprint | 160 |
 | H03 | Hard | Impound Evidence Matryoshka | 7-layer chained stego + cryptographic nesting | 160 |
 | H04 | Hard | LEGAL RAGGING | Blinded RSA-CRT fault + timing oracle + freshness gate | 160 |
 | H05 | Hard | Last Ride Out | 4-party agreement break + HKDF + nested AES | 160 |
+| E06 | Easy | Payphone Static | Split DTMF burst + custom keypad + keyed XOR | 50 |
+| E07 | Easy | Wanted Poster | Hue-keyed Vigenere over a rail fence | 50 |
+| E08 | Easy | Dead Drop Uplink | Custom UDP sessions + CRC gate + keyed XOR | 50 |
+| E09 | Easy | Chop Shop Terminal | Obfuscated client-side checker + PRNG keystream | 50 |
+| E10 | Easy | Towing Yard Ignition | Custom bytecode VM + anti-tamper gate | 50 |
+| E11 | Easy | Ghost Relay | Offline wire capture + custom relay reassembly | 50 |
+| E12 | Easy | Relay Archive | Offline relay archive + dual-carrier merge + decoy replays | 50 |
+| M06 | Medium | Nightshift Loader — Part 1 | Private packer + rotated key table + custom base + checksum gate | 100 |
+| M07 | Medium | Nightshift Config — Part 2 | Smeared RAM XOR key + trap nibble + keyed KDF/HMAC + decoy section | 100 |
+| M08 | Medium | Nightshift C2 — Part 3 | Stateful C2 protocol + HMAC-gated chained frames + plaintext decoy broadcast | 100 |
 
 Open each mission folder to read `MISSION.md` and access only its evidence attachments. CTFd provides three progressive hints per mission.

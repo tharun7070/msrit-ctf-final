@@ -55,7 +55,7 @@ const ActIII = () => {
         </div>
 
         <p className="max-w-xl lg:ps-32 ps-10 mt-8 text-pink text-xl font-bold">
-          Crack all 15 jobs across three tiers to claim the maximum $1,550 crew bounty.
+          Crack all 25 jobs across three tiers to claim the maximum $2,200 crew bounty.
         </p>
       </div>
     </section>

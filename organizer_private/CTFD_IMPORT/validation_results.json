@@ -1,5 +1,5 @@
 {
-  "challenge_count": 15,
+  "challenge_count": 25,
   "all_pass": true,
   "file_integrity": "all participant attachments exist and are non-empty",
   "plaintext_leak_scan": "no canonical flag appears in any participant-served tree",
@@ -8,91 +8,151 @@
       "id": "E01",
       "result": "PASS",
       "derived_flag": "FTA{41_c1ph3r_b4s3_cust0m_m0d_p4g3r_l3st3r_2026}",
-      "method": "base-41 x7 modular-filtered rows"
+      "method": "dual-congruence filter + affine-unpermute + base-41 x8 rows"
     },
     {
       "id": "E02",
       "result": "PASS",
       "derived_flag": "FTA{4ff1n3_v1n3w00d_sh1ft_c0nv0y_99}",
-      "method": "SHA1-checksum row + affine a=7,b=11 inverse"
+      "method": "dual-gate row + sample-recovered width=9 affine=(7,11)"
     },
     {
       "id": "E03",
       "result": "PASS",
       "derived_flag": "FTA{ext2_st4sh_r3c0v3r3d_s4ndy_51}",
-      "method": "ext2 raw-carve masked zlib stream (key=66)"
+      "method": "ext2 carve + relay/host multi-byte mask (span=139) + b64"
     },
     {
       "id": "E04",
       "result": "PASS",
       "derived_flag": "FTA{lsb_c0lumn_m4j0r_ut7_p13r}",
-      "method": "column-major 2-LSB extract + UTF-7"
+      "method": "gated column-major 2-LSB + geometry/salt keystream + gzip + UTF-7"
     },
     {
       "id": "E05",
       "result": "PASS",
       "derived_flag": "FTA{p0lygl0t_pdf_zip_aes_v4ult}",
-      "method": "PDF/ZIP polyglot + SQLite AES key + CBC decrypt"
+      "method": "PDF/ZIP polyglot + PBKDF2 key + CBC vault + 3-table XOR"
+    },
+    {
+      "id": "E06",
+      "result": "PASS",
+      "derived_flag": "FTA{p4yph0n3_st4t1c_dtmf_tr4p}",
+      "method": "split DTMF burst (drop handshake) + custom keypad + keyed XOR/inflate"
+    },
+    {
+      "id": "E07",
+      "result": "PASS",
+      "derived_flag": "FTA{w4nt3d_p0st3r_hue_k3y_v1g3n3r3}",
+      "method": "seal-hue keyword + Vigenere + rail-fence decode"
+    },
+    {
+      "id": "E08",
+      "result": "PASS",
+      "derived_flag": "FTA{d34d_dr0p_upl1nk_s3ss10n}",
+      "method": "select genuine session (control-keyed) + CRC + keyed XOR/inflate"
+    },
+    {
+      "id": "E09",
+      "result": "PASS",
+      "derived_flag": "FTA{ch0p_sh0p_t0k3n_f31st3l_r3v3rs3}",
+      "method": "un-rotate JS array + unmask seed + xorshift32 key + base64"
+    },
+    {
+      "id": "E10",
+      "result": "PASS",
+      "derived_flag": "FTA{t0w1ng_y4rd_byt3c0d3_1gn1t10n}",
+      "method": "corrected VM opcode table + full-XOR decode + FNV-1a gate"
+    },
+    {
+      "id": "E11",
+      "result": "PASS",
+      "derived_flag": "FTA{gh0st_r3l4y_l1v3_c4ptur3}",
+      "method": "offline wire capture -> CRP reassembly (dual carrier) + keyed XOR/inflate"
+    },
+    {
+      "id": "E12",
+      "result": "PASS",
+      "derived_flag": "FTA{r3l4y_4rch1v3_m3rg3d_0ff4x}",
+      "method": "offline archive -> dual-carrier parcel id + CRP reassembly (E11-chained)"
     },
     {
       "id": "M01",
       "result": "PASS",
       "derived_flag": "FTA{s3c0nd_0rd3r_fl33c4_byp4ss}",
-      "method": "crack custom hash -> second-order UNION SQLi"
+      "method": "honeypot crack + HMAC session + second-order stored SQLi"
     },
     {
       "id": "M02",
       "result": "PASS",
       "derived_flag": "FTA{b1n_pr0t0_crc32_gh0st_fl1ght}",
-      "method": "123 checksum-valid TCP frames, 6 CRC32-accepted fragments"
+      "method": "IPv4 reassembly + nested seals + session-nonce LCG (6 frags)"
     },
     {
       "id": "M03",
       "result": "PASS",
       "derived_flag": "FTA{h4sh_ch41n_t4mp3r_l5pd_aud1t}",
-      "method": "repair 3 forged records in 1000-line hash chain"
+      "method": "salt-brute keyed chain + repair 3 forgeries in 1000 records"
     },
     {
       "id": "M04",
       "result": "PASS",
       "derived_flag": "FTA{lfsr23_b3rl3k4mp_m4ss3y_r4d10}",
-      "method": "Berlekamp-Massey LFSR (L=23) keystream extension"
+      "method": "demux 3 lanes (BM x2 + GF(2) solve) + transpose inverse"
     },
     {
       "id": "M05",
       "result": "PASS",
       "derived_flag": "FTA{c0ncurr3ncy_r4c3_d15p4tch_f1x}",
-      "method": "lock-repaired dispatch + 32-bit overflow checksum"
+      "method": "lock-repaired dispatch + 32-bit overflow stage-2 (3 bugs) + stage-3"
+    },
+    {
+      "id": "M06",
+      "result": "PASS",
+      "derived_flag": "FTA{n1ghtsh1ft_l04d3r_unp4ck3d_t0k3n}",
+      "method": "rotated key table + SHA-256 keystream + CRC gate + custom base-40"
+    },
+    {
+      "id": "M07",
+      "result": "PASS",
+      "derived_flag": "FTA{n1ghtsh1ft_c2_c0nf1g_r4m_x0r}",
+      "method": "heap-smeared XOR key + token KDF + HMAC-gated LIVE section"
+    },
+    {
+      "id": "M08",
+      "result": "PASS",
+      "derived_flag": "FTA{n1ghtsh1ft_c2_s3ss10n_ch41n3d_fr4m3s}",
+      "method": "HMAC-gated chained C2 frames -> exfil payload"
     },
     {
       "id": "H01",
       "result": "PASS",
       "derived_flag": "FTA{z4nclud0_vm_d34db0lt_unl0ck}",
-      "method": "ELF vault inverse (len=32) + live gate execution"
+      "method": "chained VM1->VM2 vault (len=32) + FNV/HMAC gates + live gate exec"
     },
     {
       "id": "H02",
       "result": "PASS",
       "derived_flag": "FTA{sp3ctr4l_fr33w4y_gr4ph_150m0rph}",
-      "method": "induced subgraph iso over 800-node graph"
+      "method": "weighted-Laplacian fingerprint over 2500-node graph"
     },
     {
       "id": "H03",
       "result": "PASS",
       "derived_flag": "FTA{m4try0shk4_f1v3_l4y3rs_c4rv3d}",
-      "method": "5 layers: LSB+EXIF/GPS->PBKDF2+AES-CTR->MTX->Huffman->exec"
+      "method": "7 shells: LSB/GPS->CTR->ZIP->GCM->MTX->Huffman->exec"
     },
     {
       "id": "H04",
       "result": "PASS",
       "derived_flag": "FTA{rs4_crt_f4ult_l3g4l_r4gg1ng}",
-      "method": "RSA-CRT fault gcd factorisation + forged admin token"
+      "method": "un-blind debug sigs -> gcd fault split -> nonce oracle -> forged admin token"
     },
     {
       "id": "H05",
       "result": "PASS",
       "derived_flag": "FTA{mult1_p4rty_3sc4p3_pr0t0c0l}",
-      "method": "detect unauthenticated re-advertised C share -> rebuild key"
+      "method": "bound/reduced share framing -> weighted HKDF -> nested GCM over CBC"
     }
   ],
   "failures": []

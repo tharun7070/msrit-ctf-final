@@ -10,12 +10,16 @@ Steps
    other; the correct manifest needs both exact.
 2. Decode ``out.bin`` = base85(zlib(json)) and unmask the embedded stage-2
    source with the keystream keyed on the repaired (ledger, dispatched) pair.
-3. Repair stage 2's TWO independent bugs:
-     (a) the 32-bit rotate must mask its overflow back to 32 bits, and
+3. Repair stage 2's THREE independent bugs:
+     (a) the 32-bit rotate must mask its overflow back to 32 bits;
      (b) the length-prefixed record must be read big-endian at offset 2
-         (the shipped code reads little-endian at offset 3).
-4. The repaired record payload is one more reversible layer: base64 of the
-   flag bytes XORed with a fixed rotating key.
+         (the shipped code reads little-endian at offset 3); and
+     (c) the trailer must be read at ``2 + n`` -- the shipped code adds a
+         spurious byte whenever ``n`` is a multiple of 4, which every base64
+         payload is, so a fix of (a)+(b) alone still trips the trailer check.
+4. The repaired record payload is still wrapped: peel the base64/rotating-key
+   outer wrap, then undo the stage-3 transform (run-length collapse + a
+   per-index rotating XOR) to recover the flag bytes.
 5. Assert the result equals ``L.FLAGS["M05"]`` and print ``[M05] PASS -> ...``.
 
 Self-contained and fully deterministic.
@@ -36,7 +40,8 @@ import lib_fta as L
 
 MASK32 = 0xFFFFFFFF
 MASK64 = (1 << 64) - 1
-THIRD_KEY = bytes((0x5A, 0xC3, 0x77, 0x21))
+THIRD_KEY = bytes((0x5A, 0xC3, 0x77, 0x21))  # outer fixed rotating key
+ROT_SEED = 0x9E3779B9                         # stage-3 rotating-XOR seed
 M05_DIR = L.out_dir("M05")
 sys.path.insert(0, str(M05_DIR))
 import broken_dispatch as bd  # noqa: E402  (participant package; main() guarded)
@@ -113,12 +118,15 @@ def extract_stage2_source(blob):
     return base64.b64decode(manifest["stage2_b64"]).decode("utf-8")
 
 
-def stage2_process(tags, sealed, rot_masked=True, rec_buggy=False):
+def stage2_process(tags, sealed, rot_masked=True, rec_buggy=False,
+                   align_buggy=False):
     """Reimplementation of stage 2, parametrised on which bugs remain.
 
     rot_masked=False  -> the 32-bit rotate overflow is not masked (bug a)
     rec_buggy=True    -> the record length is read little-endian at offset 3
                          instead of big-endian at offset 2 (bug b)
+    align_buggy=True  -> the trailer is read one byte late whenever ``n`` is a
+                         multiple of 4 (bug c)
 
     Raises ValueError when the record trailer rejects the parsed payload.
     """
@@ -146,16 +154,37 @@ def stage2_process(tags, sealed, rot_masked=True, rec_buggy=False):
     else:
         n = int.from_bytes(plain[0:2], "big")
         body = plain[2:2 + n]
-    trailer = int.from_bytes(plain[2 + n:6 + n], "big")
+    span = n + 1 if (align_buggy and (n & 3) == 0) else n
+    trailer = int.from_bytes(plain[2 + span:6 + span], "big")
     if (sum(body) & 0xFFFF) != trailer:
         raise ValueError("reconciliation record failed its trailer check")
     return body
 
 
-def third_layer_decode(payload: bytes) -> str:
+def wrap_decode(payload: bytes) -> bytes:
+    """Peel the base64 / fixed-rotating-key outer wrap."""
     x = base64.b64decode(payload)
-    fb = bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(x))
-    return fb.decode("ascii")
+    return bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(x))
+
+
+def stage3_decode(data: bytes) -> bytes:
+    """Undo stage 3: per-index rotating XOR, then run-length collapse."""
+    rot = ROT_SEED
+    expanded = bytearray(len(data))
+    for k, b in enumerate(data):
+        rot = ((rot << 1) | (rot >> 31)) & MASK32
+        expanded[k] = b ^ ((rot >> 7) & 0xFF)
+    fb = bytearray()
+    k = 0
+    while k < len(expanded):
+        fb.extend([expanded[k]] * expanded[k + 1])
+        k += 2
+    return bytes(fb)
+
+
+def unwrap_payload(payload: bytes) -> str:
+    """Full outer peel: outer wrap then stage-3, yielding the flag text."""
+    return stage3_decode(wrap_decode(payload)).decode("ascii")
 
 
 def verify(flag: str):
@@ -171,19 +200,22 @@ def solve():
     exec(compile(source, "<stage2>", "exec"), ns)
     tags, sealed = ns["TAGS"], ns["SEALED"]
 
-    # Every variant of the shipped bug (and each partial fix) is rejected.
-    for rot_masked, rec_buggy, label in (
-            (False, True, "shipped (both bugs)"),
-            (True, True, "rotate fixed only"),
-            (False, False, "record fixed only")):
+    # Every variant of the shipped bug (and each partial fix) is rejected:
+    # only the fully-repaired (True, False, False) combination survives.
+    import itertools
+    for rot_masked, rec_buggy, align_buggy in itertools.product((False, True),
+                                                                repeat=3):
+        if (rot_masked, rec_buggy, align_buggy) == (True, False, False):
+            continue
         try:
-            stage2_process(tags, sealed, rot_masked, rec_buggy)
+            stage2_process(tags, sealed, rot_masked, rec_buggy, align_buggy)
         except ValueError:
             continue
-        raise AssertionError("stage-2 variant accepted: %s" % label)
+        raise AssertionError("stage-2 variant accepted: %r"
+                             % ((rot_masked, rec_buggy, align_buggy),))
 
-    payload = stage2_process(tags, sealed, rot_masked=True, rec_buggy=False)
-    flag = third_layer_decode(payload)
+    payload = stage2_process(tags, sealed, True, False, False)
+    flag = unwrap_payload(payload)
 
     verify(flag)
     print("[M05] PASS ->", flag)

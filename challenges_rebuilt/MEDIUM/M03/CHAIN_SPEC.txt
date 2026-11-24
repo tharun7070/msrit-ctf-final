@@ -13,33 +13,82 @@ FILE: lspd_auth.log
     data        free-form dispatch note (never contains '|')
     chain_hash  64 lowercase hex chars
 
-CHAIN DEFINITION
+CHAIN DEFINITION (KEYED)
   Let content_i = "<seq>|<timestamp>|<event_code>|<data>" (the first four
-  fields). The chain is:
-      chain_hash_i = sha256_hex( chain_hash_{i-1} + content_i )
+  fields). The chain is drawn with HMAC-SHA256 under a secret key:
+      chain_hash_i = HMAC_SHA256( key = SALT,
+                                  msg = chain_hash_{i-1} + content_i )
       chain_hash_0 = "0" * 64          (64 ASCII zeroes, the genesis link)
-  i.e. each record commits to the PREVIOUS record's stored hash. To verify a
-  file, walk it top-to-bottom recomputing each chain_hash from the PRECEDING
-  STORED hash and the current content. A record whose recomputed hash differs
-  from its stored hash has been tampered with.
+  To verify a file, walk it top-to-bottom recomputing each chain_hash from the
+  PRECEDING STORED hash and the current content. A record whose recomputed hash
+  differs from its stored hash has been tampered with.
+
+  The SALT is a 2-byte (16-bit) value. It is NOT stored anywhere in this file
+  set. Recover it as follows ("roots first"): take the block-1 checkpoint root
+  printed below and brute-force the 65536 candidate salts, recomputing block-1's
+  root for each candidate, and keep the one that matches. No other candidate
+  will match.
+
+BLOCK CHECKPOINTS
+  Records are grouped into fixed blocks of 100. For block b the checkpoint
+  root is
+      root_b = HMAC_SHA256( key = SALT,
+                            msg = "block=<b>|" + concatenated block-b contents )
+  Block b spans records <seq> in [ 100*(b-1)+1 .. 100*b ]. The
+  10 roots are:
+
+  root[ 1]  end_seq=100   digest=b7491062f8dbe8ddb9b5d9ce08e705d274e8491911e5f7eaf768a03b1c7d0229
+  root[ 2]  end_seq=200   digest=63b4fd8f5e205c0006c5f6979c59ca73bbf15a89db1423a848f7524c1fcc88f1
+  root[ 3]  end_seq=300   digest=d753f67425da1dd681f2e65a2d148cdbc3f4d4b623e1360ab3c06f30a23f0793
+  root[ 4]  end_seq=400   digest=a1bffe6b58e53bd806027db84b96753f1c0e73a03fde4be19de8e7bce3618563
+  root[ 5]  end_seq=500   digest=7ba1b1724d19dcb02c954a92e42ab9e4ee2d8063858f91c35c2665219fa087d0
+  root[ 6]  end_seq=600   digest=fd0a719ab57498b4b90ac85ebd0992b00378f13fe379257365f875c042dd7e6d
+  root[ 7]  end_seq=700   digest=b4f1589a4c2ee6d1e09250f75b39ee43f10acc68fd58d4655f874a22c8786573
+  root[ 8]  end_seq=800   digest=0e580846063c26986372eccbe59e0084230a70cf44771cfac6627cb3922cd7b9
+  root[ 9]  end_seq=900   digest=56f023772f5cffec0abb21d8c215973a2ad4216e2c950c970fca8633123fbac7
+  root[10]  end_seq=1000  digest=47c31366647a357759f04b9b3c63c89b95d4fbd5d4366ac0f9e4fdafa2634e23
+
+  Both the per-record keyed chain AND every block root must agree. A block whose
+  recomputed root differs from the value above is compromised. (Breaking an
+  early block does NOT corrupt a later block's root; each block is rooted
+  independently, so several blocks can be broken at once.)
 
 FILE: audit_delta.bin
-  A binary patch carrying the ORIGINAL content (the first four fields, i.e.
-  the "<seq>|<timestamp>|<event_code>|<data>" string) of every record that was
-  altered after the chain was sealed. Layout:
+  A TRIPLY nested binary patch carrying the ORIGINAL content (the first four
+  fields, i.e. the "<seq>|<timestamp>|<event_code>|<data>" string) of every
+  record that was altered after the chain was sealed. Layout:
 
-      magic            4 bytes, ASCII "AUD1"
+      magic            4 bytes, ASCII "AUD2"
+      width            1 byte  (columnar-transpose width W = 7)
       record_count     uint16 little-endian
       then record_count records, each:
           seq          uint16 little-endian  (which log record this restores)
-          blob_len     uint32 little-endian  (length of the RLE blob below)
-          blob         blob_len bytes of RUN-LENGTH-ENCODED content
+          raw_len      uint32 little-endian  (length of the inner RLE blob)
+          blob_len     uint32 little-endian  (length of the stored blob)
+          blob         blob_len bytes
 
-  The content bytes are compressed with this custom RLE:
+  The content bytes pass through THREE stages on the way in; undo them in
+  reverse:
+      stage 1  RLE   : content -> run-length encoded blob (see below)
+      stage 2  XOR   : rle[i] ^= ((i * 0x5d + 0x1f) mod 256)  (index-derived)
+      stage 3  TRNS  : the XORed bytes are zero-padded to a multiple of W, laid
+                       into a W-column matrix row-major, and emitted column-major
+  To decode one record:
+      1. inverse-transpose `blob` with width W -> padded stream, keep first
+         raw_len bytes -> the XORed RLE stream.
+      2. undo the stage-2 XOR over the first raw_len positions.
+      3. RLE-decode the result -> the original content.
+
+  The custom RLE (stage 1):
       token 0x00 <n> <n bytes>   literal block, <n> is 1..255 raw bytes
       token <n> <value>          a run of <value> repeated <n> times (n is 3..255)
   Note 0x00 is reserved for the literal opcode, so run counts are always >= 3.
+  Undoing only one or two stages yields garbage.
 
-  Restoring a record means replacing its first four fields with the decoded
-  original content. The record's stored chain_hash is untouched (the delta
-  only rewrites content), which is exactly what re-seals the chain.
+FLAG DERIVATION (cross-field predicate)
+  Consider every record whose event_code ends with the exact class token
+  "_ACCEPT". Classify each such code by the low bit of the first hex nibble of
+  its SHA-256 digest, i.e. class(code) = int(sha256_hex(code)[0], 16) & 1.
+  Walking the file top-to-bottom, build two columns by taking the FIRST
+  character of each code in each class. The flag is the byte-wise XOR of the
+  class-0 column with the class-1 column, in order.

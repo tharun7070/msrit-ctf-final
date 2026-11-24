@@ -8,6 +8,13 @@ tower wire: the airport keeps shipping its own little packets inside
 the ordinary network traffic, and those packets are wrapped again.
 Nobody has given us the wire format.
 
+Heads-up from the wire crew: the tower breaks its own datagrams apart
+in flight, so a lot of what looks like junk is really one message
+spread over several packets. Nothing reads right until you put the
+pieces of each datagram back together, in order, and only then walk
+the result top to bottom — the very first intact message hands you the
+session token you need to un-scramble everything that follows.
+
 Not everything on the wire is intact, and not everything that is
 intact is worth reading. The seal is not the obvious one — trust the
 tower's own rule, not the one you assume. Read only what the tower is

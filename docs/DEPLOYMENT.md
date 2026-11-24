@@ -65,14 +65,21 @@ docker compose ps
    - Admin account credentials: save securely.
 3. In the CTFd Admin panel, go to `Settings` -> `Access Tokens` and generate an Admin API token.
 
-### 5. Import All 15 Challenges
+### 5. Import All 25 Challenges
 ```powershell
 $env:CTFD_TOKEN = "your_generated_admin_token"
 $env:CTFD_URL = "http://localhost:8000"
 python scripts/import_challenges.py --apply --allow-http
 ```
 
-### 6. Verify Deployment Health
+### 6. Provision Crew Credentials
+Public registration is closed. Create one team + member logins per crew and emit a private credentials sheet:
+```powershell
+python organizer_private\CTFD_IMPORT\provision_teams.py --roster roster.csv --apply --allow-http
+```
+`roster.csv` is one row per crew: `team_name,member1[,member2][,member3]`. Credentials land in `organizer_private\team_credentials.csv` — distribute one row-group per crew.
+
+### 7. Verify Deployment Health
 Run the automated verification suite:
 ```powershell
 python scripts/validate_challenges.py

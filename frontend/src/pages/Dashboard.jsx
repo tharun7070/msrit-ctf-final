@@ -47,8 +47,8 @@ export default function Dashboard() {
   const hardSolved = hardChallenges.filter(c => solvedIds.has(c.ctfd_id)).length;
 
   const totalSolved = solvedIds.size;
-  const totalChallenges = challenges.length || 15;
-  const totalBountyPossible = 1550;
+  const totalChallenges = challenges.length || 25;
+  const totalBountyPossible = 2200;
 
   // Use team score if in team, otherwise calculate from solved challenges
   const effectiveCash = teamScore || (
@@ -253,14 +253,14 @@ export default function Dashboard() {
                   ACT I: THE STREET JOB (EASY)
                 </span>
                 <span className="text-gray-400">
-                  {easySolved} / 5 SOLVED (${easySolved * 50} / $250)
+                  {easySolved} / 10 SOLVED (${easySolved * 50} / $500)
                 </span>
               </div>
               <div className="w-full bg-white/10 h-4 rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-500"
                   style={{
-                    width: `${(easySolved / 5) * 100}%`,
+                    width: `${(easySolved / 10) * 100}%`,
                     background: '#39FF14',
                     boxShadow: '0 0 10px #39FF14aa',
                   }}

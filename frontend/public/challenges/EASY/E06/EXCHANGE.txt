@@ -1,0 +1,49 @@
+FLAG THEFT AUTO // EXCHANGE 06 - PAYPHONE RELAY DEBRIEF
+========================================================
+Channel  : disused payphone, Los Santos wire exchange
+Bearer   : DTMF touch-tone capture  (payphone.wav)
+Clearance: courier eyes only - do not retransmit
+
+WHAT WAS CAPTURED
+-----------------
+The line carried THREE tone blocks. A routine recorder drops the
+whole take as one stream and reads every digit nose-to-tail; that
+is exactly the mistake. Do NOT decode the file as a single number.
+
+  1) HANDSHAKE  - the FIRST block (six digits). It is only a dial
+                  confirmation; it carries no traffic. DISCARD it.
+  2) The LONG DOUBLE-INTERVAL after the handshake separates the
+     filler from the real signal. The block that FOLLOWS it is the
+     genuine OPERATIONAL CODE (six digits, read on the keypad).
+  3) After the SHORTER interval comes the PAYLOAD: one long
+     decimal number that must be turned back into raw bytes.
+
+KEYPAD (read the six digits as (key,offset) PAIRS)
+--------------------------------------------------
+  key 0 : l  w  n
+  key 1 : x  r  0
+  key 2 : e  #  i
+  key 3 : s  j  f
+  key 4 : d  h  o
+  key 5 : u  k  *
+  key 6 : t  m  v
+  key 7 : z  a  q
+  key 8 : p  c  g
+  key 9 : b  y  _
+
+Read the six operational digits left to right as three pairs
+(key,offset): each pair selects ONE glyph - the glyph in that row
+at that column (offset 0 = first column). The three glyphs spell
+the WORD that keys the payload. (Filler glyphs appear on the pad;
+the traffic word uses letters only.)
+
+PAYLOAD DECODE
+--------------
+Take the payload block as a single decimal integer. Convert it to
+big-endian bytes. XOR every byte with the byte-stream
+SHA256(WORD + "payphone") repeated to the required length. The
+result is a zlib stream; inflate it to recover the phrase.
+
+CONFIRMED COURIER PHRASE (bait - do not submit)
+-----------------------------------------------
+confirmed courier phrase: FTA{handshake_n0t_th3_r34l_0n3}

@@ -1,0 +1,39 @@
+DEAD DROP UPLINK - FIELD NOTES (recovered from a burner handset)
+================================================================
+
+The crew never talks. They drop small parcels onto an unlisted UDP uplink,
+one UDP datagram per fragment, no handshake. Capture the feed, rebuild the
+parcel, inflate it.
+
+FRAME (custom payload; begins immediately after the 8-byte UDP header)
+---------------------------------------------------------------------
+  MAGIC     2 bytes   big-endian   0xE1D0
+  SESSION   2 bytes   big-endian   drop session id
+  SEQ       2 bytes   big-endian   fragment index inside the session
+  CRC16     2 bytes   big-endian   CRC-16/CCITT-FALSE over FRAGMENT
+  FRAGMENT  (rest)                 opaque fragment bytes
+
+  CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection, xor-out
+  0x0000. Drop any fragment that fails the check.
+
+PORTS
+  CONTROL   4444   exactly one packet per session; its FRAGMENT is the key
+  DATA      4446   the legacy uplink data port the drop still uses
+
+KEY DELIVERY (CONTROL.fragment)
+  base64( rot13( hex(SK) ) )  ->  16-byte session key SK
+
+PARCEL REASSEMBLY
+  Sort the session's DATA fragments by SEQ, concatenate, XOR the whole
+  buffer with the keystream = SHA256(SK) repeated, then zlib-inflate. The
+  result is the drop payload (a single ASCII line).
+
+REPLAYS / LEGACY
+  Timed-out batches are replayed verbatim. A replayed parcel is framed with
+  MAGIC 0xD1E0 and left on the legacy data port; a lazy filter such as
+  udp.port == 4446  or  magic == 0xD1E0  will latch onto the REPLAY first.
+  One such replayed parcel inflates to:
+
+        FTA{r3pl4y3d_s3ss10n_b41t}        <- DECOY, do not submit
+
+  The live drop re-keyed its magic; trust the CRC, not these notes.

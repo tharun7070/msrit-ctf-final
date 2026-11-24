@@ -14,7 +14,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import lib_fta as L
-from solve_m02 import solve, extract_fragments
+from solve_m02 import solve, extract_fragments, naive_reassembly
 
 
 def accepts(candidate: str) -> bool:
@@ -62,7 +62,19 @@ def main():
         f"{stats}"
     )
     assert len(frags) > 1 and stats["payloads"] >= len(frags), stats
+
+    # --- the IPv4 fragmentation layer must actually be in play --------------
+    assert stats["fragments"] > 0, f"no IPv4 fragments found: {stats}"
+    assert stats["packets"] > stats["payloads"], (
+        f"expected fragmented records to outnumber reassembled segments: {stats}"
+    )
+
+    # --- the naive whole-frame CRC32 trap must land on the DECOY ------------
+    decoy = naive_reassembly(pcap)
+    assert decoy != L.FLAGS["M02"], "decoy trap collapsed onto the real flag"
+    assert decoy.startswith("FTA{") and decoy.endswith("}"), decoy
     print(f"[M02] {stats} accepted_fragments={len(frags)}")
+    print(f"[M02] naive-CRC trap reassembles to decoy {decoy}")
 
     print("[M02] VALIDATION OK")
 

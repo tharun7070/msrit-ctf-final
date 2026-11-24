@@ -40,7 +40,7 @@ const ActII = () => {
           Fleeca vault kiosks. Airport flight network captures. Police department midnight auth records. Repeating XOR broadcasts.
         </p>
         <p className="mb-6">
-          The operations get heavier and the surveillance gets tighter. Your crew moves from basic ciphers to live SQL injection simulations, network packet correlation, and Python debugging under pressure. Five medium-tier contracts paying $100 each — a $500 payout waiting in the city’s core systems.
+          The operations get heavier and the surveillance gets tighter. Your crew moves from basic ciphers to live SQL injection simulations, network packet correlation, and Python debugging under pressure. Eight medium-tier contracts paying $100 each — an $800 payout waiting in the city’s core systems.
         </p>
 
         <div className="pt-2">

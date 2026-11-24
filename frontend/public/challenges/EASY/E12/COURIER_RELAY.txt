@@ -1,0 +1,40 @@
+COURIER RELAY - ARCHIVE NOTES (recovered from a dead relay's buffer)
+====================================================================
+
+The relay you sniffed live (GHOST RELAY) also buffers its parcels off-air for
+crews working dark. This dump is that buffer. Nothing here talks; the parcels
+sit still and wait to be reassembled.
+
+FRAME (custom payload; begins immediately after the 8-byte UDP header)
+---------------------------------------------------------------------
+  MAGIC     2 bytes   big-endian   0xCB01
+  SESSION   2 bytes   big-endian   drop session tag
+  SEQ       2 bytes   big-endian   fragment index (0xFFFF = CONTROL)
+  CRC16     2 bytes   big-endian   CRC-16/CCITT-FALSE over FRAGMENT
+  FRAGMENT  (rest)                 opaque fragment bytes
+
+  CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection, xor-out
+  0x0000. Drop any fragment that fails the check.
+
+CARRIERS
+  CONTROL   7000   the probe port; its FRAGMENT carries the session key
+  REPLAY    7003   the legacy carrier the buffer was written to
+
+KEY DELIVERY (CONTROL.fragment)
+  base64( rot13( hex(SK) ) )  ->  16-byte session key SK
+
+PARCEL REASSEMBLY
+  Sort the session's fragments by SEQ, concatenate, XOR the whole buffer with
+  the keystream = SHA256(SK) repeated, then zlib-inflate. The result is the
+  parcel payload (a single ASCII line).
+
+THE ARCHIVE'S OWN TAG
+  Each parcel is stamped with its SESSION tag. The genuine archive parcel
+  reuses the Ghost Relay (E11) capture's tag -- the one you noted there.
+  Two old fragments in this dump are stamped as legacy replays left on the
+  REPLAY carrier; they inflate to claws-marked bait:
+
+        FTA{l3g4cy_r3pl4y_p4th_b41t}      <- DECOY
+        FTA{0ld_r3l4y_buff3r_b41t}        <- DECOY
+
+  Trust the tag and the carrier, not the port number these notes hand you.

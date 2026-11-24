@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Integration builder for the FLAG THEFT AUTO challenge replacement.
 
-Single source of truth for the 15 rebuilt challenges. From the data below it
+Single source of truth for the 25 rebuilt challenges. From the data below it
 regenerates (data only -- no component structure, no styling):
 
   * organizer_private/CTFD_IMPORT/manifest.json     (private flags)
@@ -94,59 +94,59 @@ CH = [
          solution="Treat impound_dossier.pdf as a PDF+GIF89a+ZIP polyglot. AES-128 key = PBKDF2-HMAC-SHA256(password = SERIAL + '|' + ROUTE_CODE, salt, 50000, dklen=16), where SERIAL is the AcroForm field 'serial' (not the body text) and ROUTE_CODE is printed in the visible body; the IV rides in the ZIP extra field. Decrypt to vault.db (tables operators/routes/seals joined on a TEXT token); the flag is the XOR of the three joined *_hex columns. Decoys: a fake flag row and a grep-able fake 'ARCHIVE KEY' comment."),
     dict(cid="M01", title="Fleeca Vault Glitch", level="Medium", act="The Big Heist",
          location="Fleeca Bank", category="Web security",
-         topic="Two-stage stored injection + DB-keyed hashing + session gate", points=100, mission=6,
+         topic="Two-stage stored injection + un-reversed alias + veiled columns + session gate", points=100, mission=6,
          thumb="/images/lucia-3.webp",
-         briefing="Fleeca's offline kiosk has two faces: a careful registration desk and a careless profile loader that trusts what it reads back. Registering is safe — the bug lives on a LATER visit, after a second sync step stores a derived copy of your data that is then interpolated raw. The login hash is home-grown and keyed with secrets that live only inside the database, and reaching the vault needs a valid session token on top of the injection. A honeypot admin account is waiting to waste your afternoon.",
-         objective="Trip the two-stage stored-data flaw, satisfy the database-keyed hash, present a valid session, and retrieve the escrow record.",
+         briefing="Fleeca's offline kiosk has two faces: a careful registration desk and a careless profile loader that trusts what it reads back. The bug lives on a LATER visit — after a second sync stores a derived copy of your data, written through one more transform the loader never reverses. The escrow columns come back veiled, keyed by a session you must earn first, and the obvious ledger is a trap wired to a canary that poisons your teller session and serves decoy rows. A honeypot admin is still waiting to waste your afternoon.",
+         objective="Trip the multi-stage stored-data flaw through the un-reversed transform, derive the session key, unveil the columns, and avoid the canary.",
          files=["fleeca_kiosk.py", "fleeca.db", "common_pw.txt"],
-         hints=["Registering is not exploiting. A later sync writes a derived copy, and only that copy is ever placed into the vulnerable query.",
-                "The scrubber has a blind spot, and the loader quietly undoes one of its own protections when it reads the value back.",
-                "The password hash is keyed by a per-user salt and a server pepper you must read out of the database, and a valid HMAC session token is a separate, mandatory gate."],
-         solution="register (safe) -> sync (stores a derived alias) -> load (interpolates the stored alias raw). Bypass the custom scrubber with a /*...*/ comment (it strips -- and ; but not /* */) to run a second-order UNION injection against the escrow table advertised in config.core_ledger. Authenticate with trunc(sha256('fleeca-h2'|per_user_salt|pw|user[::-1]|server_pepper))[:20] using salt+pepper read from fleeca.db, and present a valid token = HMAC(secret_key, user|nonce). Decoys: honeypot admin/sunshine and a fake vault table."),
+         hints=["Registering is not exploiting, and the stored alias is not what you typed — a later sync writes it through one more transform (a reversal plus a rotation) that the loader never undoes. Compose your payload so it survives that round-trip.",
+                "The obvious ledger is bait and it is wired to a canary: touching it poisons your session and serves decoy rows. The real table is advertised elsewhere in the database, and the escrow columns are individually veiled (base64 plus a session-keyed mask), so you must earn the session first.",
+                "The password hash is keyed by a per-user salt and a server pepper you must read out of the database, and a valid HMAC session token is a separate, mandatory gate that also seeds the column veil."],
+         solution="register (safe) -> sync (stores rot13(rev(payload)); pre-compose rot13(desired[::-1])) -> load (interpolates the stored alias raw). Bypass the custom scrubber with a /*...*/ comment to run a second-order UNION injection against the real table advertised in config.core_ledger — do NOT touch the decoy escrow ledger (it trips a canary). Authenticate with trunc(sha256('fleeca-h2'|per_user_salt|pw|user[::-1]|server_pepper))[:20] using salt+pepper read from fleeca.db, and present token = HMAC(secret_key, user|nonce). Un-veil each escrow column: base64-decode then XOR the SHA256 counter-mode keystream of HMAC(session_key,'M01-escrow-veil') tagged per column. Decoys: honeypot admin/sunshine; the escrow/vault/receipts tables full of fake flags."),
     dict(cid="M02", title="Airport Ghost Flight", level="Medium", act="The Big Heist",
          location="Los Santos International Airport", category="Network forensics",
-         topic="Nested frames + scoped seal + sequence-keyed mask", points=100, mission=7,
+         topic="IPv4 fragmentation + nested frames + scoped seal + nonce-keyed mask", points=100, mission=7,
          thumb="/images/jason-1.webp",
-         briefing="LSIA's tower talks to a plane radar insists isn't there. The capture is raw wire with two layers of framing: the tower's own packets ride inside ordinary TCP, and inside those sits yet another frame with its own magic. The seal is computed over part of each frame, not all of it, and the payload is masked by the inner sequence rather than by the seal. Most packets are fakes, and the outer ordering field is a deliberate lie.",
-         objective="Walk both framing layers, keep only the genuinely-sealed messages, and reconstruct the ghost flight's callsign.",
+         briefing="LSIA's tower talks to a plane radar insists isn't there. The capture does not even hand you whole packets: each message is shattered across IPv4 fragments you must reassemble before a single protocol byte makes sense. Inside, two layers of framing hide a scoped seal that covers only part of each frame, and the mask is keyed by a session nonce carried once, on the first genuine message. A decoy group boasts a valid whole-frame checksum and reassembles to a flag that is a lie, and the outer ordering field is bait.",
+         objective="Reassemble the fragmented datagrams, walk both framing layers, harvest the session nonce, and reconstruct the ghost flight's callsign.",
          files=["airport_traffic.pcap", "MANIFEST.txt"],
-         hints=["Two magics, two layers. Walk the bytes by hand; nothing here is a well-known protocol tree.",
-                "The seal covers only part of the frame — a whole-frame checksum rejects the genuine packets and, tellingly, accepts a decoy set.",
-                "The mask is keyed by the inner sequence, not the seal, and the outermost order field is bait."],
-         solution="Parse the classic pcap. Outer frame: magic 0xDEAD1A70 LE, type 0x0A, seal = CRC32(frame[0:12] || payload) SKIPPING the 2-byte route field. Inner frame: magic 0x1A70C0DE LE, ver==1, itype 0x5C. XOR the inner data with an LCG keystream keyed by the inner sequence, then order by the inner seq (ignore the outer seq). Decoys: a naive-whole-frame-CRC group reassembling to a fake flag, plus bad-seal / wrong-type frames."),
+         hints=["Nothing here is packet-shaped yet. Reassemble the IPv4 fragments first — group by a shared IP id and sort by fragment offset — before you parse any protocol.",
+                "The seal covers only part of the frame: a whole-frame checksum rejects the genuine packets and, tellingly, accepts the decoy group. The session nonce rides once, on the first genuine message — harvest it before you can unmask anything.",
+                "The mask is keyed by the session nonce and the inner sequence, not by the outer order field (which is bait)."],
+         solution="Parse the pcap; reassemble IPv4 fragments per (src,dst,id,proto) ordered by offset, then assemble the TCP flows. Outer frame: magic 0xDEAD1A70, type 0x0A, seal = CRC32 over frame[0:12] || payload SKIPPING the 2-byte route field. Harvest the session nonce from the first genuine frame's SESSION_MAGIC prefix. Inner frame: magic 0x1A70C0DE, itype 0x5C; XOR the inner data with keystream(nonce, inner_seq), then order by the inner seq. Decoys: a naive whole-frame-CRC group that reassembles to a fake flag, plus bad-seal / wrong-type frames."),
     dict(cid="M03", title="LSPD Midnight Audit", level="Medium", act="The Big Heist",
          location="Los Santos Police Department", category="Log forensics",
-         topic="Keyed hash chain + block checkpoints + nested delta", points=100, mission=8,
+         topic="Keyed chain + hidden salt + checkpoint roots + triply-nested delta", points=100, mission=8,
          thumb="/images/jason-2.webp",
-         briefing="LSPD's overnight auth log claims to be tamper-evident: every line is chained to the previous one by a hash, and periodic checkpoints root each block. Three lines are lies. A plain unkeyed recomputation will 'verify' those forgeries, which is exactly the trap — the chain is keyed by a salt you must find, and both the chain and the block roots must agree. A sidecar delta holds what the originals should have said, but it is nested, and the flag is not a tidy pairwise XOR of adjacent characters.",
-         objective="Verify the keyed chain and its checkpoints, repair the forgeries via the nested delta, and derive the encoded flag from a cross-field predicate.",
+         briefing="LSPD's overnight auth log claims to be tamper-evident: every line is chained by a keyed hash and periodic roots pin each block — but the salt is nowhere in the file, so a plain unkeyed recomputation cheerfully 'verifies' the forgeries. Two blocks are broken, not one. The sidecar delta that holds the originals is nested three deep, and a long run of easy-looking entries is bait that collapses to a flag that is not this audit's.",
+         objective="Recover the salt from the checkpoint roots, repair every broken block, and derive the encoded flag from a cross-field predicate.",
          files=["lspd_auth.log", "audit_delta.bin", "CHAIN_SPEC.txt"],
-         hints=["Do not merely recompute a plain hash chain — it is keyed with a salt you must recover, and an unkeyed chain happily accepts the forgeries.",
-                "There is a second integrity layer: periodic checkpoint roots over blocks. Chain and trouble-free block roots must both hold.",
-                "The delta is nested (an outer RLE plus an index-derived transform), and the flag comes from a predicate spanning several fields, not from neighbouring characters."],
-         solution="Verify chain_i = HMAC-SHA256(prev_chain || entry_data, salt) with the salt recovered from the log header/CHAIN_SPEC, and verify per-block checkpoint roots (every 100 entries). Locate the three forged entries at the chain/root breaks. Decode audit_delta.bin as nested RLE + index-derived XOR and apply it to repair. Derive the flag by selecting entries whose code ends '_ACCEPT' AND whose third field hashes into a given class, then combining the specified column per CHAIN_SPEC. Decoys: forged lines that pass an unkeyed chain, plus a decoy event sequence yielding a fake flag."),
+         hints=["Do not merely recompute a plain hash chain — it is keyed, and an unkeyed chain happily accepts the forgeries. The salt is not stored: recover it from the published checkpoint roots (the space is tiny).",
+                "More than one block is broken, and per-block roots mean you must repair each independently. Chain and block roots must both hold.",
+                "The delta is nested three deep (RLE, an index-derived XOR, and a columnar transpose). The flag comes from a predicate spanning an exact class token and a cross-field hash class — not from the obvious contiguous run of easy entries."],
+         solution="Recover the 2-byte salt by brute force until the block-1 checkpoint root matches CHAIN_SPEC.txt, then verify chain_i = HMAC-SHA256(key=salt, msg=prev||entry_data) and each 100-entry checkpoint root. Repair the two broken blocks (forged seqs 604/655/812) via the triply-nested delta: columnar transpose (width 7) -> index XOR ((i*0x5D+0x1F) mod 256) -> RLE. Derive the flag from entries with the exact class token '_ACCEPT' classified by the low bit of sha256(code)[0], combining the specified column and XORing class-0 vs class-1. Decoy: the contiguous _REACCEPT run collapses to a fake flag."),
     dict(cid="M04", title="Underground XOR Radio", level="Medium", act="The Big Heist",
          location="Underground Market", category="Cryptography",
-         topic="Interleaved LFSRs + partial KPA + lane transpose", points=100, mission=9,
+         topic="Three interleaved LFSRs + header lane offset + partial KPA + lane transpose", points=100, mission=9,
          thumb="/images/jason-3.webp",
-         briefing="A black-market radio burst is only a few hundred bytes, but its keystream came from two machines, not one, and they are multiplexed byte-by-byte on the wire. Only part of a known header was captured alongside it, and a fixed lane transpose sits between the XOR and the bytes you see. The signal spec is bait: it lists parameters that are confidently wrong.",
-         objective="De-multiplex the two generators, recover both from the partial sample, undo the transpose, and decrypt the packet.",
+         briefing="A black-market radio burst is only a few hundred bytes, but its keystream came from three machines, multiplexed in fixed-length bursts whose starting lane is written in the one part of the packet that is not encrypted. Only a sliver of a known header was captured, so one register must be reconstructed by linear algebra rather than assumed. A fixed lane transpose sits between the XOR and the wire, and the signal spec is bait: it lists parameters that are confidently wrong.",
+         objective="Read the sync header, de-multiplex the three generators, recover each register, undo the transpose, and decrypt the packet.",
          files=["radio_packet.bin", "keystream_sample.bin", "SIGNAL_SPEC.txt"],
-         hints=["Two shift registers drive the mask, interleaved byte-by-byte. De-multiplex the stream before attempting to recover either one.",
-                "The captured sample is incomplete, and a fixed lane transpose sits between the XOR and the wire — invert it before you XOR.",
-                "The spec's parameters are a decoy. Trust the structure you recover, not the sheet."],
-         solution="From the exposed leading bytes of keystream_sample.bin, de-multiplex even/odd byte lanes and run Berlekamp-Massey on each lane: recover a degree-23 LFSR (taps 23,5) and a degree-17 LFSR (taps 17,3), regenerate the full keystream, invert the fixed 8-byte lane transpose, then XOR against radio_packet.bin. SIGNAL_SPEC.txt lists wrong taps/seeds and a decoy flag fragment."),
+         hints=["Three shift registers, not two, take turns in fixed-length bursts. The starting lane is in cleartext in the packet header — read it before you de-multiplex.",
+                "The captured sample is far too short for the largest register: recover the two small lanes with Berlekamp-Massey, but solve the big lane as a small linear system over GF(2), using the taps published in the sync header.",
+                "A fixed 8-byte lane transpose sits between the XOR and the wire — invert it before you XOR. The spec's taps, seeds and burst are decoys."],
+         solution="Read the 12-byte sync header for lane_off/burst/beacon-degree+taps. Burst de-multiplex the wire with the header offset. Recover R0(deg 11) and R1(deg 13) via Berlekamp-Massey on at least 2*deg bits; recover the deg-23 beacon lane by solving its GF(2) output system with the published taps. Regenerate the full keystream, invert the fixed 8-byte lane transpose, then XOR against radio_packet.bin. SIGNAL_SPEC.txt is a decoy (wrong taps/seeds/burst, plus a decoy flag fragment)."),
     dict(cid="M05", title="Debugging the Dispatch", level="Medium", act="The Big Heist",
          location="Lester's Hideout", category="Programming",
-         topic="Two-structure race + dual-bug stage 2 + final wrap", points=100, mission=10,
+         topic="Serialised race + three-bug stage 2 + stage-3 unwrap", points=100, mission=10,
          thumb="/images/lucia-1.webp",
-         briefing="Lester's dispatcher rebuilds a message from unordered packets, but it loses packets under load and its output is still wrapped in more of its own mistakes. The loss is a race across two shared structures, so locking a single increment will not be enough. What the fixed dispatcher emits is another program with two independent bugs, and even a correctly fixed program leaves the result wrapped one more time.",
-         objective="Fix the dispatcher so it runs deterministically, then repair the two independent bugs in the program it produces, and unwrap the final layer.",
+         briefing="Lester's dispatcher rebuilds a message from unordered packets, but under load it loses packets through a race across two shared structures — locking a single counter is not enough. The fixed dispatcher then emits a program with three independent bugs, the third of which only fires when a length lands on a four-byte boundary, so testing one input misleads you. Even a fully correct program leaves the result wrapped one more time. A partial fix prints ARCHIVED_VALUE, and a decoy sits in the notes.",
+         objective="Fix the dispatcher race so it runs deterministically, repair all three bugs in the program it produces, and unwrap the final layer.",
          files=["broken_dispatch.py", "dispatch_packets.json", "README.txt"],
-         hints=["The loss is a race across TWO shared structures, not one. Guarding a single counter still leaves you wrong.",
-                "The emitted program has two independent bugs: one about arithmetic width and one about how a length field is read.",
-                "When both bugs are fixed the payload is still wrapped exactly once more before it becomes the flag."],
-         solution="Serialise the entire critical section (the per-lane tally dict AND the running ledger), so the seal is consistent; the fixed dispatcher emits base85(zlib(json)) containing stage2.py. Fix both stage-2 bugs — the fixed-width 32-bit rotate missing its & 0xFFFFFFFF, and the length-prefixed record parsed big-endian at offset 2 rather than little-endian at offset 3 — then undo the final base64 + rotating-XOR wrap. Decoys: a partial fix yields ARCHIVED_VALUE, and the notes carry a fake flag."),
+         hints=["The loss is a race across TWO shared structures; guard the entire critical section. A partial fix yields ARCHIVED_VALUE.",
+                "The emitted program has three independent bugs: an arithmetic width, a length field read at the wrong offset and endianness, and a conditional off-by-one that only triggers when a length is a multiple of four — test more than one input.",
+                "When all three bugs are fixed the payload is still wrapped once more (a run-length expansion plus a rotating key) before it becomes the flag."],
+         solution="Serialise the entire critical section (the per-lane tally dict AND the running ledger) so the seal is consistent; the fixed dispatcher emits base85(zlib(json)) containing stage2.py. Fix all three stage-2 bugs: the 32-bit rotate missing its & 0xFFFFFFFF, the length-prefixed record parsed big-endian at offset 2 (should be little-endian at offset 3), and the conditional off-by-one that reads the trailer a byte late when the length is a multiple of 4. Then undo the final wrap: base64 -> rotating-key XOR -> stage-3 run-length expansion. Decoys: a partial fix prints ARCHIVED_VALUE, and the notes carry a fake flag."),
     dict(cid="H01", title="Zancudo Deadbolt", level="Hard", act="The Final Getaway",
          location="Fort Zancudo Military Base", category="Reverse engineering",
          topic="Anti-analysis traps + chained VMs + runtime-keyed vault", points=160, mission=11,
@@ -202,7 +202,123 @@ CH = [
                 "The session secret is a weighted product of the contributions, not a sum; steering it means solving for a share value rather than picking one.",
                 "There are decoy key-confirmations. The real one sits between them, and the payload is nested twice."],
          solution="Parse the TLV transcript: shares A/B are bound (32B element + 16B tag = 48B) while C/D are reduced (bare 32B) and re-advertised. The agreement value is Y = XA^5 * XB^11 * XC^13 * XD^17 mod p; the key is K = HKDF(salt, Y, info||sid). Choose an attacker-known target and solve for the injected C share XC = (Y* * R^-1)^(13^-1 mod (p-1)). Confirm against record 0x0020 (0x0021/0x0022 are decoys), then AES-256-GCM decrypt final_payload.enc and finally AES-256-CBC the inner blob."),
+    # --- Wave 2 "namesake-easy" — labelled Easy, engineered to be brutal ---------
+    dict(cid="E06", title="Payphone Static", level="Easy", act="The Street Job",
+         location="Little Seoul", category="Steganography",
+         topic="Split DTMF burst + custom keypad + keyed XOR", points=50, mission=16,
+         thumb="/images/jason-1.webp",
+         briefing="A payphone outside a Little Seoul laundromat kept spitting out a call nobody placed. The recording is mostly handshake noise; the genuine traffic only begins after a long dead interval. The file hides more than it says — a lazy low-bit sweep hands you a smug little flag that is a lie — and what follows the gap is a two-block keypad code plus a payload sealed with a key you must first assemble from the keypad block itself.",
+         objective="Recover the single courier phrase. The recording names nothing: split the burst, discard the handshake, rebuild the key, and peel the payload.",
+         files=["payphone.wav", "EXCHANGE.txt"],
+         hints=["A blanket DTMF decode concatenates three blocks and fails. A long dead interval separates a handshake from the operational traffic — discard everything before the double gap.",
+                "The handshake is bait, and so is the flag written into the sample's lowest bits. The real key is not a number: the operational block is a sequence of (key, offset) digit pairs read off the exchange's private pad.",
+                "The payload digits are one large decimal number. The key you assembled seeds a hash keystream (an XOR), and decompression is the very last step."],
+         solution="Split the WAV by silence into three DTMF blocks; discard block A (handshake). Block B is 6 digits = three (key,offset) pairs -> the 3-letter pad word via EXCHANGE.txt's 10x3 keypad; that word seeds SHA256(word+'payphone') as the keystream. Block C is the decimal form of zlib(flag) XOR keystream. Convert block C to bytes, XOR the keystream, zlib-decompress. Decoys: the LSB payload 'FTA{d34d_b34t_0n_th3_w1r3}' and EXCHANGE.txt's printed 'confirmed courier phrase'."),
+    dict(cid="E07", title="Wanted Poster", level="Easy", act="The Street Job",
+         location="Vinewood Hills", category="Steganography",
+         topic="Hue-keyed Vigenere over a rail fence", points=50, mission=17,
+         thumb="/images/jason-2.webp",
+         briefing="A wanted poster from Vinewood Hills carries a prisoner's parting note and a row of printer's seal swatches that most people take for decoration. The ciphertext is printed in plain sight, but the watchword the note advertises is a plant; the real keyword is carried only by the colours of the seal. Two classical ciphers are stacked, and the poster also hides a lazy low-bit payload that decodes to a flag that will get you laughed out of the precinct.",
+         objective="Recover the real keyword from the seal, unwind both classical layers, and submit the recovered flag.",
+         files=["wanted_poster.png", "DEPUTIZE.txt"],
+         hints=["The watchword printed in the note is wrong on purpose. Only the seal's colours carry the real one — sample the swatch row and map each hue bin to a letter.",
+                "Two classical ciphers are stacked: undo the substitution first, then the transposition.",
+                "The poster's lowest bit-plane holds a decoy flag. Ignore it."],
+         solution="Read the 'ciphertext' text chunk (or OCR the CIPHERTEXT line). Sample the bottom seal swatch row; hue bin int(hue/360*26) -> the keyword. Vigenere-decrypt the letters of the ciphertext with that keyword, then rail-fence (rails=3) decode -> flag. Decoys: DEPUTIZE.txt's 'FREEWAY' watchword and its printed flag line, plus the LSB decoy 'FTA{p0st3r_lsb_b41t}'."),
+    dict(cid="E08", title="Dead Drop Uplink", level="Easy", act="The Street Job",
+         location="La Mesa", category="Network forensics",
+         topic="Custom UDP sessions + CRC gate + keyed XOR", points=50, mission=18,
+         thumb="/images/jason-3.webp",
+         briefing="A tow-truck dead drop pinged a cell tower in La Mesa and vanished. The capture holds two interleaved sessions with identical framing; exactly one is real, and the spec sheet you were handed points at the wrong one — a replayed decoy whose fragments reassemble into a flag that isn't the drop. The genuine session's key rides in a single control uplink, folded twice.",
+         objective="Pick the genuine session, validate its fragments, recover the session key, and reconstruct the drop.",
+         files=["dead_drop.pcap", "UPLINK_SPEC.txt"],
+         hints=["Two sessions share the framing, and the spec's port and magic lead to the decoy. The genuine session is the one whose control packet actually carries a key.",
+                "The key is folded twice — undo both. Then CRC-validate the data fragments before you trust a single one.",
+                "Fragments must be ordered by their sequence field, and the keystream is keyed by the session key at each fragment's global offset."],
+         solution="Parse the pcap's Ethernet/IPv4/UDP; collect custom payloads (MAGIC | SESSION | SEQ | CRC16 | FRAGMENT). Find the CONTROL packet (udp/4444) and base64+rot13-decode the session key; match its SESSION id to select the genuine DATA packets (udp/4445). Verify CRC-16, order by SEQ, XOR the SHA256(key) keystream, zlib-decompress. Decoy: the 0xD1E0 / udp-4446 session reassembles to 'FTA{r3pl4y3d_s3ss10n_b41t}'."),
+    dict(cid="E09", title="Chop Shop Terminal", level="Easy", act="The Street Job",
+         location="Strawberry", category="Web security",
+         topic="Obfuscated client-side checker + PRNG keystream", points=50, mission=19,
+         thumb="/images/lucia-1.webp",
+         briefing="A Strawberry chop shop screens clients with a browser 'terminal' that validates an access token locally. The checker is buried under a rotating string table and a home-grown generator, and it lies in two places: a dead branch and a comment both offer 'the' key, and neither opens the door. The only truth is the arithmetic the page actually runs.",
+         objective="Recover the token the checker would accept — without a browser doing the work for you.",
+         files=["terminal.html", "chopshop.js"],
+         hints=["The comment and the dead branch are plants. The page's real decision is an arithmetic comparison against an embedded digest.",
+                "The keystream is a small integer generator seeded by a value that is itself masked. Recover the seed before generating anything.",
+                "Invert the same order the checker applies: base64 first, then the masked keystream, then compare."],
+         solution="Deobfuscate chopshop.js: un-rotate the string array (rotation 3) and un-mask the seed (stored = seed XOR 0xa5a5f00d). Regenerate the xorshift32 keystream, XOR the embedded TARGET hex, base64-decode -> flag. Decoys: the dead-branch 'FTA{sh0p_b41t_d34d_c0d3}' and the comment 'FTA{c0mm3nt_s4ys_th15}'."),
+    dict(cid="E10", title="Towing Yard Ignition", level="Easy", act="The Street Job",
+         location="El Burro Heights", category="Reverse engineering",
+         topic="Custom bytecode VM + anti-tamper gate", points=50, mission=20,
+         thumb="/images/lucia-2.webp",
+         briefing="A towed car's immobiliser module dumps a single opaque blob and a mechanic's note; the keyfob tool that shipped with it is subtly wrong and will happily show you a program that prints a decoy 'ignition' phrase. The blob is bytecode for a small machine, and it refuses to cooperate when read through a bad lens — the correct phrase is the only string that satisfies the module's own checksum.",
+         objective="Repair your reading of the bytecode, execute it correctly, and recover the ignition phrase.",
+         files=["ignition.vmb", "YARD_NOTES.txt", "disassemble.py"],
+         hints=["The provided disassembler's table is wrong in exactly one place; its listing is a dead end.",
+                "The blob's header is obfuscated the same way as its instructions — read the key from the header and unmask before you decode anything.",
+                "The module self-checks: the true phrase must satisfy FNV-1a-32 == the header CHECK. Use that to tell a correct decode from the decoy."],
+         solution="The .vmb layout is MAGIC | OPKEY | CONST(4) | CHECK(4) | len(2) | bytecode, with every byte at offset >= 5 XORed by OPKEY. Implement the VM with the CORRECTED opcode table (the note swaps ADD/XOR and wrongly claims operands are stored verbatim), run the program, and confirm FNV-1a-32(CONST) == CHECK. The correct VM prints 'FTA{t0w1ng_y4rd_byt3c0d3_1gn1t10n}'; the naive table trips the gate and yields 'FTA{1gn1t1on_1mm0b1l1z3r_b41t}'."),
+    # --- Wave 3 relay pair — Easy, two offline captures from the same relay -----
+    dict(cid="E11", title="Ghost Relay", level="Easy", act="The Street Job",
+         location="Paleto Bay", category="Network forensics",
+         topic="Offline wire capture + custom relay reassembly", points=50, mission=21,
+         thumb="/images/lucia-1.webp",
+         briefing="A black-market courier relay in Paleto Bay was caught mid-drop, and the only thing recovered is a short wire capture of the burst it threw back at a passer-by who poked it. The relay never talks first, and when it did answer it did not answer politely — the parcel came back as a scatter of small datagrams leaving from several ports at once, salted with a replay nobody asked for. Listen on a single socket and you read noise; you have to work the whole conversation at the frame level to decide which fragments are the drop. Everything you need is already in the capture.",
+         objective="Reassemble the parcel hiding in the capture and submit the flag.",
+         files=["ghost_relay.pcap"],
+         hints=["The capture holds one relay burst. Read it at the frame level; the parcel is split across two carriers.",
+                "Merge the fragments arriving on udp/7001 and udp/7002 by their sequence field, and pick the key out of the single control fragment on udp/7000.",
+                "A legacy replay burst on udp/7003 frames itself with a different magic and inflates to a bait flag. Trust the CRC, not the port number."],
+         solution="Open ghost_relay.pcap in Wireshark (or tcpdump). Collect the COURIER RELAY PROTOCOL frames (MAGIC | SESSION | SEQ | CRC16 | FRAGMENT; magic 0xCB01, session 0xC11A). The CONTROL frame (SEQ=0xFFFF, udp/7000) carries base64(rot13(hex(SK))); decode the 16-byte key. Merge the CRC-valid DATA fragments from udp/7001 (even SEQ) and udp/7002 (odd SEQ), order by SEQ, XOR the SHA256(SK) keystream and zlib-inflate. Decoy: the udp/7003 burst (magic 0xCB02) reassembles to 'FTA{r3pl4y3d_r3l4y_b41t_d0_n0t_subm1t}'."),
+    dict(cid="E12", title="Relay Archive", level="Easy", act="The Street Job",
+         location="Grapeseed", category="Network forensics",
+         topic="Offline relay archive + dual-carrier merge + decoy replays", points=50, mission=22,
+         thumb="/images/jason-1.webp",
+         briefing="The same Ghost Relay keeps a buffer for crews working dark, and what you have here is the relay's off-air copy of what it was holding when it went quiet. It mixes a genuine parcel with old fragments it left on the legacy replay carrier, and the notes shipped with the dump are a plant — they point you at the wrong port and hand you two bait flags by name. The genuine parcel remembers the relay it came from: it is stamped with the very session tag from the Ghost Relay capture, and it is the only parcel in the dump spread across two carriers rather than one.",
+         objective="Identify the genuine parcel in the archive, reassemble it, and submit the flag. It is directly related to the capture from Ghost Relay.",
+         files=["relay_archive.pcap", "COURIER_RELAY.txt"],
+         hints=["Every parcel in the dump uses the same framing and the same magic; the port the notes insist on is the legacy replay path, where the bait lives.",
+                "The genuine parcel is the only one delivered across TWO carriers (udp/7001 and udp/7002), and it reuses the session tag captured in Ghost Relay.",
+                "The key is folded twice (base64 then a rotation); CRC-check the fragments before you trust a byte, then order by SEQ, XOR and inflate."],
+         solution="Parse relay_archive.pcap (Ethernet/IPv4/UDP). Collect COURIER RELAY PROTOCOL frames (magic 0xCB01); group by SESSION. The genuine parcel is the only one whose CRC-valid DATA fragments arrive across BOTH udp/7001 and udp/7002; its tag equals the Ghost Relay (E11) capture tag (0xC11A). Decode the key from its CONTROL fragment base64(rot13(hex(SK))), order fragments by SEQ, XOR the SHA256(SK) keystream, zlib-inflate. Decoys: the single-carrier udp/7003 replays inflate to 'FTA{l3g4cy_r3pl4y_p4th_b41t}' and 'FTA{0ld_r3l4y_buff3r_b41t}' agent-bait printed in COURIER_RELAY.txt."),
+    # --- Wave 4 "Nightshift" — malware-analysis trilogy (Medium, chained 23/24/25) -
+    # Part 1 -> 2 -> 3: each part recovers a token the next part demands. No live
+    # service: the whole chain is offline artefacts.
+    dict(cid="M06", title="Nightshift Loader — Part 1", level="Medium", act="The Big Heist",
+         location="Mirror Park", category="Malware analysis",
+         topic="Private packer + rotated key table + custom base + checksum gate", points=100, mission=23,
+         thumb="/images/lucia-1.webp",
+         briefing="A crew's fixer implant was recovered mid-drop in Mirror Park: one opaque blob, the wrapper's scratch notes, and a half-written unpacker somebody abandoned. It is not a real executable and the usual tools learn nothing from it — the container invents its own layout and admits no standard signature. Three reversible layers sit between you and the implant's dispatch order, and the notes confidently nominate the wrong one to undo first. The abandoned stub still runs and cheerfully prints a little phrase the crew left behind for exactly this situation; it is not the drop.",
+         objective="Reverse the wrapper and recover the implant's dispatch order plus the token it is meant to hand onward. Nothing in the notes names an algorithm that actually works.",
+         files=["nightshift_loader.bin", "LOADER_NOTES.txt", "unpack_stub.py"],
+         hints=["The table you are told to use as stored is not usable as stored: one byte in the header decides how it must be turned before any key material is correct, and the abandoned stub ignores that byte completely.",
+                "A checksum gate sits between the two transforms. If you are brute-forcing a byte order until it merely looks like text, stop — the gate already knows whether you are right.",
+                "What comes out is not ASCII. The container carries its own private alphabet, and once you decode with it, the dispatch order and a short token sit on the lines that follow."],
+         solution="Parse the NSLF container: magic (4B), version (u16 LE), rort byte at offset 6, then a section table of (4-byte tag | u32 LE length | body): KEYT, CHST, PACK, DBUG. Un-rotate the KEYT table left by rort (the note's use-as-stored route fails the CRC gate). XOR PACK[4:] with the SHA-256 counter keystream of that key and verify zlib.crc32(body) == the stored u32 in PACK[:4]. The decoded body is base-40 text over the 40-char alphabet stored in CHST; decode it to a payload of 'FLAG:<flag>' and 'TOKEN:<32 hex>'. The 16-byte TOKEN is required by Part 2. DBUG is a decoy (base64 XOR 0x5a) that yields the bait flag. Bait: the stub prints FTA{n1ghtsh1ft_l04d3r_d3bug_b41t_d0_n0t_subm1t}."),
+    dict(cid="M07", title="Nightshift Config — Part 2", level="Medium", act="The Big Heist",
+         location="Elysian Island", category="Malware analysis",
+         topic="Smeared RAM XOR key + trap nibble + keyed KDF/HMAC + decoy section", points=100, mission=24,
+         thumb="/images/lucia-2.webp",
+         briefing="The fixer stashed its configuration beside a scrap of process memory pulled from a dockyard terminal at Elysian Island. The key was never stored whole: four allocations in the heap slice hold it split apart, and a fifth looks exactly like the ones you want but belongs to a build the crew retired — combining it yields a key that opens nothing. The config is double-locked, and one lock will not even answer unless you already carry the dispatch order from the loader. One of the two sealed sections is genuine and one is a planted twin for the retired key; the notes swear the wrong one is live.",
+         objective="Rebuild the smeared key from the live buffers only, unlock the config with the dispatch order from Part 1, and read the C2 endpoint and session id it keeps for the next stage.",
+         files=["nightshift_config.bin", "ram_slice.bin", "CONFIG_NOTES.txt"],
+         hints=["The passphrase is not one value. Every live allocation must be combined, and a corrupt one announces itself before you trust it — the fifth record sitting near the live four is not live.",
+                "One field in that stray record is a single nibble off from its twin, and it is there on purpose. Feeding the stray key material gives a key that decrypts to noise, not to the config.",
+                "The container gates you twice: one sealed section authenticates against the dispatch order alone as a checkpoint, and only then does the genuine payload open — under a key derived from the order and the rebuilt memory key together."],
+         solution="Read the NSCF container (magic + version + section table): TAGV, LEGC, LIVE. From ram_slice.bin (magic NSRAM1, u16 count, then 16-byte heap records of name|status|8 data|check byte = (sum(data) XOR 0x5a) & 0xff) take the four records with status 1 and names KEY0..KEY3 and XOR their 8-byte bodies together to rebuild the smeared key. The freed shadow K2SH record is a trap: it is KEY2 with one nibble flipped and only opens the LEGC decoy. Authenticate the gate first — TAGV must equal HMAC-SHA256(mac_key → sha256('NS-CFG-MAC'||key), 'ns-config-tag')[:16] — then derive key = sha256('NS-CFG-KEY'||Token||ram_key) and AES-like decrypt LIVE: key stream = sha256 counter mode keyed by (key, 8-byte IV), tag = the last 16 bytes. Payload carries 'FLAG:', 'C2:<host>:<port>', 'SESSION:<32 hex>'. The endpoint + 16-byte session id feed Part 3. Bait: LEGC (trap-keyed) and the note's 'live' claim both yield FTA{n1ghtsh1ft_c2_c0nf1g_b41t_d0_n0t_subm1t}."),
+    dict(cid="M08", title="Nightshift C2 — Part 3", level="Medium", act="The Big Heist",
+         location="Port of Los Santos", category="Malware analysis",
+         topic="Stateful C2 protocol + HMAC-gated chained frames + plaintext decoy broadcast", points=100, mission=25,
+         thumb="/images/lucia-3.webp",
+         briefing="The last piece is the crew's command channel as it crossed the wire, lifted off a Port of Los Santos relay. It is not HTTP and it is not polite: every real message is an authenticated frame, the channel is salted with replays and at least one tampered frame, and a frame only decrypts in its true position — a later frame is locked by the one the crew already accepted. The capture also carries a plaintext diagnostic the implant let slip; it names an archived flag that will be refused on sight. Two endpoints appear on the wire, and the one the notes favour is a retired session that carries no key you hold.",
+         objective="Authenticate the genuine session using the endpoint and session id from Part 2, walk the frames in order, and recover the exfiltrated flag.",
+         files=["nightshift_c2.pcap", "C2_NOTES.txt"],
+         hints=["Do not trust a frame you cannot authenticate. An HMAC tag covers every real frame, and it is keyed by the session id from Part 2 — replays and the tampered frame simply drop out.",
+                "The key stream is chained: each frame mixes the previous authenticated frame's tag, so the frames must be decrypted strictly in order, not gathered and sorted after the fact.",
+                "One flow on the wire belongs to a different session that never authenticates under your key. The plaintext diagnostic broadcast is a plant; its archived flag is bait and will be rejected."],
+         solution="Parse the pcap, reassemble each TCP 4-tuple, and read NC2 frames: magic 'NC2\\x01', ftype, u32 LE seq, 16-byte nonce, u16 LE ciphertext length, ciphertext, 16-byte tag. mac_key = sha256('NS-C2-MAC'||sid); frame tag = HMAC-SHA256(mac_key, header||ciphertext)[:16]. Use Part 2's endpoint (198.51.100.7:4444) to select the genuine flow and Part 2's session id as the key. Drop ftype-0 diagnostics, drop frames failing the tag, dedupe by seq, then decrypt in seq order: key stream = sha256 counter mode over ('NS-C2-KS'||prev_tag||nonce||seq||i), where prev_tag starts as the session id and becomes the previous authenticated frame's tag. The ftype-3 exfil plaintext carries the flag. Bait: the plaintext notice's FTA{n1ghtsh1ft_c2_s3ss10n_b41t_d0_n0t_subm1t} and the retired 203.0.113.9:4445 flow."),
 ]
+
 
 # The H04/H05 offline notices live inside each challenge's `briefing` string, so
 # they flow once into the website card (challengeMeta.js), the participant
@@ -310,7 +426,7 @@ def build_meta_js():
     arr_s = "\n".join(arr)
 
     body = f"""/**
- * Local metadata for all 15 challenges.
+ * Local metadata for all 25 challenges.
  * This file contains ONLY participant-safe information:
  * challenge names, locations, descriptions visible in MISSION.md.
  * NO flags, NO solutions, NO private data.
@@ -338,7 +454,7 @@ export function normalizeName(str) {{
  * 1. Direct name match
  * 2. Normalized name match (handling unicode vs ascii apostrophes)
  * 3. fta_id prefix (E01, M03, H05)
- * 4. Mission index (1-15)
+ * 4. Mission index (1-25)
  */
 export function getChallengeMeta(identifier) {{
   if (!identifier) return {{}};
@@ -373,7 +489,7 @@ export function getChallengeMeta(identifier) {{
   return {{}};
 }}
 
-// Canonical ordered list of all 15 authentic challenges
+// Canonical ordered list of all 25 authentic challenges
 export const ALL_15_CHALLENGES = [
 {arr_s}
 ];
@@ -385,8 +501,8 @@ export const LEVEL_COLORS = {{
   Hard:   {{ border: 'rgba(255,68,68,0.5)',  text: '#ff4444', bg: 'rgba(255,68,68,0.08)' }},
 }};
 export const ACT_INFO = {{
-  'The Street Job':    {{ num: 'I',   total: '$250', count: 5 }},
-  'The Big Heist':     {{ num: 'II',  total: '$500', count: 5 }},
+  'The Street Job':    {{ num: 'I',   total: '$500', count: 10 }},
+  'The Big Heist':     {{ num: 'II',  total: '$800', count: 8 }},
   'The Final Getaway': {{ num: 'III', total: '$800', count: 5 }},
 }};
 """
@@ -448,9 +564,9 @@ def write_sha256sums(root: Path):
 # ---------------------------------------------------------------------------
 def build_answer_key():
     out = ["# PRIVATE ANSWER KEY · DO NOT DISTRIBUTE", "",
-           "**Security classification: organizer only.** Contains all 15 exact flags and reference "
+           "**Security classification: organizer only.** Contains all 25 exact flags and reference "
            "walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or "
-           "student shares. Correct score for each mission is listed below; total bounty $1,550.", ""]
+           "student shares. Correct score for each mission is listed below; total bounty $2,200.", ""]
     for ch in CH:
         out += [f"## {ch['cid']} · {ch['title']} — {ch['points']} points", "",
                 f"**Category:** {ch['category']} | **Location:** {ch['location']}  ",
@@ -482,8 +598,8 @@ def build_matrix():
 
 
 def main():
-    assert len(CH) == 15
-    assert sum(c["points"] for c in CH) == 1550
+    assert len(CH) == 25
+    assert sum(c["points"] for c in CH) == 2200
     build_manifest()
     build_meta_js()
     for r in ROOTS:

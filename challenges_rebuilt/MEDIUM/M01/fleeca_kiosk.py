@@ -20,6 +20,9 @@ HERE = Path(__file__).resolve().parent
 DB = HERE / "fleeca.db"
 SESSION = HERE / ".fleeca_session"
 HASH_TAG = "fleeca-h2"
+VEIL_TAG = "M01-escrow-veil"
+LEGACY_LEDGER = "vault"
+CANARY_LEDGER = "escrow"
 
 
 def _conn():
@@ -102,6 +105,17 @@ def _session_ok():
     return hmac.compare_digest(token, expect)
 
 
+def _rot13(text):
+    return text.translate(str.maketrans(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+        "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm"))
+
+
+def _display_alias(text):
+    """Legacy alias transform applied on write: ROT13 then reverse."""
+    return _rot13(text)[::-1]
+
+
 def _scrub(s):
     """Stage 2 helper: legacy alias normaliser.
 
@@ -127,7 +141,7 @@ def sync(username):
         con.close()
         print("sync: unknown account")
         return 1
-    alias = _scrub(row[0])
+    alias = _display_alias(_scrub(row[0]))
     con.execute(
         "INSERT INTO profiles(username, alias, updated) VALUES (?, ?, ?) "
         "ON CONFLICT(username) DO UPDATE SET alias = excluded.alias, updated = excluded.updated",
@@ -137,6 +151,44 @@ def sync(username):
     con.close()
     print(f"sync: alias registry updated for {username!r}")
     return 0
+
+
+def _keystream(key, tag, length):
+    out = b""
+    counter = 0
+    while len(out) < length:
+        out += hashlib.sha256(key + tag.encode() + counter.to_bytes(4, "big")).digest()
+        counter += 1
+    return out[:length]
+
+
+def _veil_key():
+    con = _conn()
+    secret = _cfg(con, "session_key")
+    con.close()
+    return hmac.new(bytes.fromhex(secret), VEIL_TAG.encode(), hashlib.sha256).digest()
+
+
+def _unveil(blob, tag):
+    raw = base64.b64decode(blob[3:])
+    ks = _keystream(_veil_key(), tag, len(raw))
+    return bytes(a ^ b for a, b in zip(raw, ks)).decode()
+
+
+def _show(value, tag):
+    """Display a stored column: unveil session-veiled values, else b64-decode
+    (secrets only) or fall back to the raw text."""
+    if value.startswith("v1:"):
+        try:
+            return _unveil(value, tag)
+        except Exception:
+            return value
+    if tag == "secret":
+        try:
+            return base64.b64decode(value.encode()).decode()
+        except Exception:
+            return value
+    return value
 
 
 def load_profile(username):
@@ -154,9 +206,23 @@ def load_profile(username):
         con.close()
         print("load: alias not synced for this account")
         return 1
-    # Restore the escaped display text before the legacy vault lookup.
+    # Restore the escaped display text; the write-side display transform is NOT
+    # undone here.
     alias = prow[0].replace("''", "'")
-    query = f"SELECT owner, secret FROM vault WHERE owner = '{alias}'"
+    # Canary: the "obvious" ledger is a trap. Querying it poisons the teller
+    # session and serves decoy receipts.
+    if CANARY_LEDGER in alias.lower():
+        try:
+            SESSION.write_text("poison:canary:tripped", encoding="utf-8")
+        except OSError:
+            pass
+        dec = con.execute(f"SELECT owner, secret FROM {CANARY_LEDGER}").fetchall()
+        con.close()
+        print(f"load: profile for {stored!r}")
+        for owner, secret in dec:
+            print(f"  owner={owner} secret={_show(secret, 'secret')}")
+        return 0
+    query = f"SELECT owner, secret FROM {LEGACY_LEDGER} WHERE owner = '{alias}'"
     try:
         rows = con.execute(query).fetchall()
     except sqlite3.Error as e:
@@ -166,16 +232,12 @@ def load_profile(username):
     con.close()
     print(f"load: profile for {stored!r}")
     if not _session_ok():
-        print("load: session not authenticated - vault receipts masked")
-        for owner, _ in rows:
-            print(f"  owner={owner} secret=[masked]")
+        print("load: session not authenticated - vault receipts locked")
+        for _owner, _secret in rows:
+            print("  owner=[locked] secret=[locked]")
         return 0
     for owner, secret in rows:
-        try:
-            shown = base64.b64decode(secret.encode()).decode()
-        except Exception:
-            shown = secret
-        print(f"  owner={owner} secret={shown}")
+        print(f"  owner={_show(owner, 'owner')} secret={_show(secret, 'secret')}")
     return 0
 
 

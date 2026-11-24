@@ -205,7 +205,7 @@ export default function MissionsPage() {
     {
       name: 'ACT I — THE STREET JOB',
       level: 'Easy',
-      desc: '5 Starter Jobs · $50 Each · $250 Total',
+      desc: '10 Starter Jobs · $50 Each · $500 Total',
       items: filteredChallenges.filter(c => (c.level?.toLowerCase() === 'easy') || c.fta_id?.startsWith('E')),
     },
     {
@@ -223,7 +223,7 @@ export default function MissionsPage() {
   ];
 
   const totalSolved = solvedIds.size;
-  const totalCount  = challenges.length || 15;
+  const totalCount  = challenges.length || 20;
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -253,7 +253,7 @@ export default function MissionsPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <p className="font-mono text-sm" style={{ color: '#9ca3af' }}>
-              {totalCount} ACTIVE TARGETS · $1,550 BOUNTY
+              {totalCount} ACTIVE TARGETS · $2,200 BOUNTY
             </p>
 
             {/* Cleared counter — neon green pill */}

@@ -26,6 +26,22 @@ FLAGS = {
     "H03": "FTA{m4try0shk4_f1v3_l4y3rs_c4rv3d}",
     "H04": "FTA{rs4_crt_f4ult_l3g4l_r4gg1ng}",
     "H05": "FTA{mult1_p4rty_3sc4p3_pr0t0c0l}",
+    # --- Wave 2 "namesake-easy" (labelled Easy, engineered to be brutal) ------
+    "E06": "FTA{p4yph0n3_st4t1c_dtmf_tr4p}",
+    "E07": "FTA{w4nt3d_p0st3r_hue_k3y_v1g3n3r3}",
+    "E08": "FTA{d34d_dr0p_upl1nk_s3ss10n}",
+    "E09": "FTA{ch0p_sh0p_t0k3n_f31st3l_r3v3rs3}",
+    "E10": "FTA{t0w1ng_y4rd_byt3c0d3_1gn1t10n}",
+    # --- Wave 3 "relay" pair (Easy, offline captures) --------------------------
+    # E11 is a static wire capture; E12 is the same relay's offline archive
+    # and chains back to the session tag recovered in E11.
+    "E11": "FTA{gh0st_r3l4y_l1v3_c4ptur3}",
+    "E12": "FTA{r3l4y_4rch1v3_m3rg3d_0ff4x}",
+    # --- Wave 4 "Nightshift" malware-analysis trilogy (Medium, chained) --------
+    # M06 -> M07 -> M08: each part derives a token the next part demands.
+    "M06": "FTA{n1ghtsh1ft_l04d3r_unp4ck3d_t0k3n}",
+    "M07": "FTA{n1ghtsh1ft_c2_c0nf1g_r4m_x0r}",
+    "M08": "FTA{n1ghtsh1ft_c2_s3ss10n_ch41n3d_fr4m3s}",
 }
 
 

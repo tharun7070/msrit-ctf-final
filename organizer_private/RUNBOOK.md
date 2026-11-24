@@ -5,7 +5,7 @@
 ## Before participants arrive (T−60 to T−5)
 
 - Confirm server reachable from student network; record LAN URL and test with non-admin account. Check CTFd start/close times and server clock (Asia/Kolkata event zone).
-- Run private validation. Preload the 15 missions through API. Check 45 hints and 36 attachment uploads on actual server.
+- Run private validation. Preload the 25 missions through API. Check 75 hints and 58 attachment uploads on actual server. Provision one credential set per crew (`provision_teams.py`) and print/distribute each crew's row-group.
 - Test one real student device and one Windows+WSL Linux ELF workflow. Ensure no campus network exploitation is required.
 - Print QR to CTFd base URL and rules; put participant-only ZIP on a public read-only share, bring USB backup.
 - Keep master ZIP/answer key in a password-protected organizer-only location. Take a DB/volume backup before opening.
@@ -16,8 +16,8 @@
 | Elapsed | Stage | Director action |
 |---|---|---|
 | 00:00–00:15 | Opening (15 min) | GTA-inspired story, team size, scope, no live attacks, flag syntax, fair play |
-| 00:15–00:25 | Login & briefing (10 min) | Teams register, open an Easy sample, verify downloads; no real flag reveals |
-| 00:25–02:05 | Missions live (100 min) | Make all 15 visible, start scoring; check health every 10 minutes; hints cost points on unlock |
+| 00:15–00:25 | Login & briefing (10 min) | Crews log in with their pre-issued credentials, open an Easy sample, verify downloads; no real flag reveals |
+| 00:25–02:05 | Missions live (100 min) | Make all 25 visible, start scoring; check health every 10 minutes; hints cost points on unlock |
 | 02:05–02:10 | Submission grace (5 min) | No new puzzle work; allow already recovered flags; final cutoff at 02:10 |
 | 02:10–02:20 | Verification (10 min) | Close scoring; export standings, check ties, address documented incidents |
 | 02:20–02:30 | Results & closing (10 min) | Announce winners, prize awards, release post-event educational solutions later |
@@ -42,7 +42,7 @@ Director says: “Welcome to FLAG THEFT AUTO. Your crew has 100 minutes to raid 
 
 ## At closing
 
-Freeze accepted solves at the published cutoff; export scoreboard and solve timestamps. If offline mode is active use `ORGANIZER/verify_submissions.py` on the private submission CSV. Check tie-break timestamps and dispute log. Announce results only after head judge signs off. Keep secrets private until a deliberate post-event walkthrough.
+Freeze accepted solves at the published cutoff; export scoreboard and solve timestamps. If offline mode is active use `organizer_private/verify_submissions.py` on the private submission CSV. Check tie-break timestamps and dispute log. Announce results only after head judge signs off. Keep secrets private until a deliberate post-event walkthrough.
 
 ## Incident log template
 
@@ -50,7 +50,7 @@ Freeze accepted solves at the published cutoff; export scoreboard and solve time
 
 ## Immersive radio announcements (optional, spoken by the host)
 
-**Opening:** “Los Santos control to all crews: dispatch has scattered fifteen digital clues across the city. Every tool you need is in the evidence. Your first task is to find the signal beneath the noise.”
+**Opening:** “Los Santos control to all crews: dispatch has scattered twenty-five digital clues across the city. Every tool you need is in the evidence. Your first task is to find the signal beneath the noise.”
 
 **At 30 minutes into solve window:** “The Street Job is nearly behind you. Fleeca and the airport are reporting unusual traffic. The Big Heist is calling.”
 

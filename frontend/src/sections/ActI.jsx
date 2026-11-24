@@ -33,10 +33,10 @@ const ActI = () => {
         <h1>ACT I</h1>
         <h2>THE STREET JOB</h2>
         <p className="mb-4">
-          Five starter jobs. First blood. Build your credentials in the Los Santos underground.
+          Twelve starter jobs, and not one is a warm-up. First blood. Build your credentials in the Los Santos underground.
         </p>
         <p>
-          Your crew intercepts courier signals, cracks rotation ciphers, digs through hidden drop manifests, and extracts sensitive payloads from image metadata. Five jobs worth $50 each — $250 waiting on the street.
+          Your crew intercepts courier signals, cracks rotation ciphers, digs through hidden drop manifests, and extracts sensitive payloads from image metadata. Twelve jobs worth $50 each — $600 waiting on the street.
         </p>
 
         <div className="act-img-2 mt-12">

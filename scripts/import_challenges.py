@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """FLAG THEFT AUTO — CTFd Challenge Importer Wrapper
-Imports all 15 validated challenges into a running CTFd instance.
+Imports all 25 validated challenges into a running CTFd instance.
 
 Usage:
   # Dry-run validation (no changes made):

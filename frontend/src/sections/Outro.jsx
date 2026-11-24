@@ -34,11 +34,11 @@ const Outro = () => {
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl w-full my-4">
           <div className="hud-panel p-4 rounded text-center">
-            <span className="block text-cash font-bold text-2xl md:text-3xl">15</span>
+            <span className="block text-cash font-bold text-2xl md:text-3xl">25</span>
             <span className="text-xs uppercase text-gray-400">Total Missions</span>
           </div>
           <div className="hud-panel p-4 rounded text-center">
-            <span className="block text-cash font-bold text-2xl md:text-3xl">$1,550</span>
+            <span className="block text-cash font-bold text-2xl md:text-3xl">$2,200</span>
             <span className="text-xs uppercase text-gray-400">Max Bounty</span>
           </div>
           <div className="hud-panel p-4 rounded text-center">
@@ -53,10 +53,10 @@ const Outro = () => {
 
         <div className="flex flex-wrap gap-4 justify-center items-center relative z-50">
           <Link 
-            to="/register"
+            to="/login"
             className="btn-heist text-lg py-3 px-8 cursor-pointer relative z-50 inline-block pointer-events-auto"
           >
-            ▶ JOIN THE HEIST
+            ▶ OPERATIVE LOGIN
           </Link>
           <Link 
             to="/leaderboard"

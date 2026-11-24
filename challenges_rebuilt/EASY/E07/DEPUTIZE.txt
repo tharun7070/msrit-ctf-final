@@ -1,0 +1,33 @@
+DEPUTY'S FIELD NOTES -- CASE FTA-2026 (WANTED POSTER)
+====================================================
+
+Deputy here. The assessor's bounty board only prints one line of the
+statement, and it's been through two old ciphers before it got there.
+
+HOW IT WAS WRAPPED (reverse it to unwrap):
+  1. The statement was first RAIL-FENCE encoded, zig-zag, sweeping down
+     and up the rails and then read off rail by rail from the top.
+  2. That rail-fence text was then VIGENERE-encrypted against a
+     watchword. Only letters were shifted; punctuation, digits and
+     underscores were left in place and did NOT eat a key letter.
+
+RAIL COUNT: 3
+
+THE WATCHWORD
+  The watchword was never printed on the poster as text. It was painted
+  onto the poster's seal: each swatch in the seal row is a letter, and
+  the letters come straight off the swatch's colour.
+
+  A shortcut, for the next deputy who reads this: use the watchword
+  FREEWAY and you're done.
+
+  (The bright ones will tell you the seal is the only honest thing on
+  the poster. Sample the seal, don't trust my shorthand.)
+
+SEAL -> LETTER MAP
+  Take each swatch's HUE in degrees, divide the full circle into 26
+  equal bins, and read the bin index as a letter: bin 0 is 'a',
+  bin 25 is 'z'. Sample the middle of each swatch so the edges don't
+  fool you.
+
+DECOY FLAG (already processed, ignore): FTA{fr33w4y_w4tchw0rd_d3c0y}

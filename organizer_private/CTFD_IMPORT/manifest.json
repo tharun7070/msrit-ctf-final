@@ -115,14 +115,14 @@
       "level": "Medium",
       "category": "Web security",
       "location": "Fleeca Bank",
-      "topic": "Two-stage stored injection + DB-keyed hashing + session gate",
+      "topic": "Two-stage stored injection + un-reversed alias + veiled columns + session gate",
       "points": 100,
-      "description": "# M01 · Fleeca Vault Glitch\n\n**Level:** Medium · **Points:** 100 · **Category:** Web security  \n**Location:** Fleeca Bank · **Focus:** Two-stage stored injection + DB-keyed hashing + session gate\n\n## Mission briefing\nFleeca's offline kiosk has two faces: a careful registration desk and a careless profile loader that trusts what it reads back. Registering is safe — the bug lives on a LATER visit, after a second sync step stores a derived copy of your data that is then interpolated raw. The login hash is home-grown and keyed with secrets that live only inside the database, and reaching the vault needs a valid session token on top of the injection. A honeypot admin account is waiting to waste your afternoon.\n\n## Objective\nTrip the two-stage stored-data flaw, satisfy the database-keyed hash, present a valid session, and retrieve the escrow record. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `fleeca_kiosk.py`\n- `fleeca.db`\n- `common_pw.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M01 · Fleeca Vault Glitch\n\n**Level:** Medium · **Points:** 100 · **Category:** Web security  \n**Location:** Fleeca Bank · **Focus:** Two-stage stored injection + un-reversed alias + veiled columns + session gate\n\n## Mission briefing\nFleeca's offline kiosk has two faces: a careful registration desk and a careless profile loader that trusts what it reads back. The bug lives on a LATER visit — after a second sync stores a derived copy of your data, written through one more transform the loader never reverses. The escrow columns come back veiled, keyed by a session you must earn first, and the obvious ledger is a trap wired to a canary that poisons your teller session and serves decoy rows. A honeypot admin is still waiting to waste your afternoon.\n\n## Objective\nTrip the multi-stage stored-data flaw through the un-reversed transform, derive the session key, unveil the columns, and avoid the canary. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `fleeca_kiosk.py`\n- `fleeca.db`\n- `common_pw.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{s3c0nd_0rd3r_fl33c4_byp4ss}",
       "hints": [
-        "Registering is not exploiting. A later sync writes a derived copy, and only that copy is ever placed into the vulnerable query.",
-        "The scrubber has a blind spot, and the loader quietly undoes one of its own protections when it reads the value back.",
-        "The password hash is keyed by a per-user salt and a server pepper you must read out of the database, and a valid HMAC session token is a separate, mandatory gate."
+        "Registering is not exploiting, and the stored alias is not what you typed — a later sync writes it through one more transform (a reversal plus a rotation) that the loader never undoes. Compose your payload so it survives that round-trip.",
+        "The obvious ledger is bait and it is wired to a canary: touching it poisons your session and serves decoy rows. The real table is advertised elsewhere in the database, and the escrow columns are individually veiled (base64 plus a session-keyed mask), so you must earn the session first.",
+        "The password hash is keyed by a per-user salt and a server pepper you must read out of the database, and a valid HMAC session token is a separate, mandatory gate that also seeds the column veil."
       ],
       "files": [
         "fleeca_kiosk.py",
@@ -130,7 +130,7 @@
         "common_pw.txt"
       ],
       "directory": "challenges/MEDIUM/M01",
-      "solution_outline": "register (safe) -> sync (stores a derived alias) -> load (interpolates the stored alias raw). Bypass the custom scrubber with a /*...*/ comment (it strips -- and ; but not /* */) to run a second-order UNION injection against the escrow table advertised in config.core_ledger. Authenticate with trunc(sha256('fleeca-h2'|per_user_salt|pw|user[::-1]|server_pepper))[:20] using salt+pepper read from fleeca.db, and present a valid token = HMAC(secret_key, user|nonce). Decoys: honeypot admin/sunshine and a fake vault table."
+      "solution_outline": "register (safe) -> sync (stores rot13(rev(payload)); pre-compose rot13(desired[::-1])) -> load (interpolates the stored alias raw). Bypass the custom scrubber with a /*...*/ comment to run a second-order UNION injection against the real table advertised in config.core_ledger — do NOT touch the decoy escrow ledger (it trips a canary). Authenticate with trunc(sha256('fleeca-h2'|per_user_salt|pw|user[::-1]|server_pepper))[:20] using salt+pepper read from fleeca.db, and present token = HMAC(secret_key, user|nonce). Un-veil each escrow column: base64-decode then XOR the SHA256 counter-mode keystream of HMAC(session_key,'M01-escrow-veil') tagged per column. Decoys: honeypot admin/sunshine; the escrow/vault/receipts tables full of fake flags."
     },
     {
       "id": "M02",
@@ -138,21 +138,21 @@
       "level": "Medium",
       "category": "Network forensics",
       "location": "Los Santos International Airport",
-      "topic": "Nested frames + scoped seal + sequence-keyed mask",
+      "topic": "IPv4 fragmentation + nested frames + scoped seal + nonce-keyed mask",
       "points": 100,
-      "description": "# M02 · Airport Ghost Flight\n\n**Level:** Medium · **Points:** 100 · **Category:** Network forensics  \n**Location:** Los Santos International Airport · **Focus:** Nested frames + scoped seal + sequence-keyed mask\n\n## Mission briefing\nLSIA's tower talks to a plane radar insists isn't there. The capture is raw wire with two layers of framing: the tower's own packets ride inside ordinary TCP, and inside those sits yet another frame with its own magic. The seal is computed over part of each frame, not all of it, and the payload is masked by the inner sequence rather than by the seal. Most packets are fakes, and the outer ordering field is a deliberate lie.\n\n## Objective\nWalk both framing layers, keep only the genuinely-sealed messages, and reconstruct the ghost flight's callsign. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `airport_traffic.pcap`\n- `MANIFEST.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M02 · Airport Ghost Flight\n\n**Level:** Medium · **Points:** 100 · **Category:** Network forensics  \n**Location:** Los Santos International Airport · **Focus:** IPv4 fragmentation + nested frames + scoped seal + nonce-keyed mask\n\n## Mission briefing\nLSIA's tower talks to a plane radar insists isn't there. The capture does not even hand you whole packets: each message is shattered across IPv4 fragments you must reassemble before a single protocol byte makes sense. Inside, two layers of framing hide a scoped seal that covers only part of each frame, and the mask is keyed by a session nonce carried once, on the first genuine message. A decoy group boasts a valid whole-frame checksum and reassembles to a flag that is a lie, and the outer ordering field is bait.\n\n## Objective\nReassemble the fragmented datagrams, walk both framing layers, harvest the session nonce, and reconstruct the ghost flight's callsign. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `airport_traffic.pcap`\n- `MANIFEST.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{b1n_pr0t0_crc32_gh0st_fl1ght}",
       "hints": [
-        "Two magics, two layers. Walk the bytes by hand; nothing here is a well-known protocol tree.",
-        "The seal covers only part of the frame — a whole-frame checksum rejects the genuine packets and, tellingly, accepts a decoy set.",
-        "The mask is keyed by the inner sequence, not the seal, and the outermost order field is bait."
+        "Nothing here is packet-shaped yet. Reassemble the IPv4 fragments first — group by a shared IP id and sort by fragment offset — before you parse any protocol.",
+        "The seal covers only part of the frame: a whole-frame checksum rejects the genuine packets and, tellingly, accepts the decoy group. The session nonce rides once, on the first genuine message — harvest it before you can unmask anything.",
+        "The mask is keyed by the session nonce and the inner sequence, not by the outer order field (which is bait)."
       ],
       "files": [
         "airport_traffic.pcap",
         "MANIFEST.txt"
       ],
       "directory": "challenges/MEDIUM/M02",
-      "solution_outline": "Parse the classic pcap. Outer frame: magic 0xDEAD1A70 LE, type 0x0A, seal = CRC32(frame[0:12] || payload) SKIPPING the 2-byte route field. Inner frame: magic 0x1A70C0DE LE, ver==1, itype 0x5C. XOR the inner data with an LCG keystream keyed by the inner sequence, then order by the inner seq (ignore the outer seq). Decoys: a naive-whole-frame-CRC group reassembling to a fake flag, plus bad-seal / wrong-type frames."
+      "solution_outline": "Parse the pcap; reassemble IPv4 fragments per (src,dst,id,proto) ordered by offset, then assemble the TCP flows. Outer frame: magic 0xDEAD1A70, type 0x0A, seal = CRC32 over frame[0:12] || payload SKIPPING the 2-byte route field. Harvest the session nonce from the first genuine frame's SESSION_MAGIC prefix. Inner frame: magic 0x1A70C0DE, itype 0x5C; XOR the inner data with keystream(nonce, inner_seq), then order by the inner seq. Decoys: a naive whole-frame-CRC group that reassembles to a fake flag, plus bad-seal / wrong-type frames."
     },
     {
       "id": "M03",
@@ -160,14 +160,14 @@
       "level": "Medium",
       "category": "Log forensics",
       "location": "Los Santos Police Department",
-      "topic": "Keyed hash chain + block checkpoints + nested delta",
+      "topic": "Keyed chain + hidden salt + checkpoint roots + triply-nested delta",
       "points": 100,
-      "description": "# M03 · LSPD Midnight Audit\n\n**Level:** Medium · **Points:** 100 · **Category:** Log forensics  \n**Location:** Los Santos Police Department · **Focus:** Keyed hash chain + block checkpoints + nested delta\n\n## Mission briefing\nLSPD's overnight auth log claims to be tamper-evident: every line is chained to the previous one by a hash, and periodic checkpoints root each block. Three lines are lies. A plain unkeyed recomputation will 'verify' those forgeries, which is exactly the trap — the chain is keyed by a salt you must find, and both the chain and the block roots must agree. A sidecar delta holds what the originals should have said, but it is nested, and the flag is not a tidy pairwise XOR of adjacent characters.\n\n## Objective\nVerify the keyed chain and its checkpoints, repair the forgeries via the nested delta, and derive the encoded flag from a cross-field predicate. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `lspd_auth.log`\n- `audit_delta.bin`\n- `CHAIN_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M03 · LSPD Midnight Audit\n\n**Level:** Medium · **Points:** 100 · **Category:** Log forensics  \n**Location:** Los Santos Police Department · **Focus:** Keyed chain + hidden salt + checkpoint roots + triply-nested delta\n\n## Mission briefing\nLSPD's overnight auth log claims to be tamper-evident: every line is chained by a keyed hash and periodic roots pin each block — but the salt is nowhere in the file, so a plain unkeyed recomputation cheerfully 'verifies' the forgeries. Two blocks are broken, not one. The sidecar delta that holds the originals is nested three deep, and a long run of easy-looking entries is bait that collapses to a flag that is not this audit's.\n\n## Objective\nRecover the salt from the checkpoint roots, repair every broken block, and derive the encoded flag from a cross-field predicate. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `lspd_auth.log`\n- `audit_delta.bin`\n- `CHAIN_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{h4sh_ch41n_t4mp3r_l5pd_aud1t}",
       "hints": [
-        "Do not merely recompute a plain hash chain — it is keyed with a salt you must recover, and an unkeyed chain happily accepts the forgeries.",
-        "There is a second integrity layer: periodic checkpoint roots over blocks. Chain and trouble-free block roots must both hold.",
-        "The delta is nested (an outer RLE plus an index-derived transform), and the flag comes from a predicate spanning several fields, not from neighbouring characters."
+        "Do not merely recompute a plain hash chain — it is keyed, and an unkeyed chain happily accepts the forgeries. The salt is not stored: recover it from the published checkpoint roots (the space is tiny).",
+        "More than one block is broken, and per-block roots mean you must repair each independently. Chain and block roots must both hold.",
+        "The delta is nested three deep (RLE, an index-derived XOR, and a columnar transpose). The flag comes from a predicate spanning an exact class token and a cross-field hash class — not from the obvious contiguous run of easy entries."
       ],
       "files": [
         "lspd_auth.log",
@@ -175,7 +175,7 @@
         "CHAIN_SPEC.txt"
       ],
       "directory": "challenges/MEDIUM/M03",
-      "solution_outline": "Verify chain_i = HMAC-SHA256(prev_chain || entry_data, salt) with the salt recovered from the log header/CHAIN_SPEC, and verify per-block checkpoint roots (every 100 entries). Locate the three forged entries at the chain/root breaks. Decode audit_delta.bin as nested RLE + index-derived XOR and apply it to repair. Derive the flag by selecting entries whose code ends '_ACCEPT' AND whose third field hashes into a given class, then combining the specified column per CHAIN_SPEC. Decoys: forged lines that pass an unkeyed chain, plus a decoy event sequence yielding a fake flag."
+      "solution_outline": "Recover the 2-byte salt by brute force until the block-1 checkpoint root matches CHAIN_SPEC.txt, then verify chain_i = HMAC-SHA256(key=salt, msg=prev||entry_data) and each 100-entry checkpoint root. Repair the two broken blocks (forged seqs 604/655/812) via the triply-nested delta: columnar transpose (width 7) -> index XOR ((i*0x5D+0x1F) mod 256) -> RLE. Derive the flag from entries with the exact class token '_ACCEPT' classified by the low bit of sha256(code)[0], combining the specified column and XORing class-0 vs class-1. Decoy: the contiguous _REACCEPT run collapses to a fake flag."
     },
     {
       "id": "M04",
@@ -183,14 +183,14 @@
       "level": "Medium",
       "category": "Cryptography",
       "location": "Underground Market",
-      "topic": "Interleaved LFSRs + partial KPA + lane transpose",
+      "topic": "Three interleaved LFSRs + header lane offset + partial KPA + lane transpose",
       "points": 100,
-      "description": "# M04 · Underground XOR Radio\n\n**Level:** Medium · **Points:** 100 · **Category:** Cryptography  \n**Location:** Underground Market · **Focus:** Interleaved LFSRs + partial KPA + lane transpose\n\n## Mission briefing\nA black-market radio burst is only a few hundred bytes, but its keystream came from two machines, not one, and they are multiplexed byte-by-byte on the wire. Only part of a known header was captured alongside it, and a fixed lane transpose sits between the XOR and the bytes you see. The signal spec is bait: it lists parameters that are confidently wrong.\n\n## Objective\nDe-multiplex the two generators, recover both from the partial sample, undo the transpose, and decrypt the packet. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `radio_packet.bin`\n- `keystream_sample.bin`\n- `SIGNAL_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M04 · Underground XOR Radio\n\n**Level:** Medium · **Points:** 100 · **Category:** Cryptography  \n**Location:** Underground Market · **Focus:** Three interleaved LFSRs + header lane offset + partial KPA + lane transpose\n\n## Mission briefing\nA black-market radio burst is only a few hundred bytes, but its keystream came from three machines, multiplexed in fixed-length bursts whose starting lane is written in the one part of the packet that is not encrypted. Only a sliver of a known header was captured, so one register must be reconstructed by linear algebra rather than assumed. A fixed lane transpose sits between the XOR and the wire, and the signal spec is bait: it lists parameters that are confidently wrong.\n\n## Objective\nRead the sync header, de-multiplex the three generators, recover each register, undo the transpose, and decrypt the packet. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `radio_packet.bin`\n- `keystream_sample.bin`\n- `SIGNAL_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{lfsr23_b3rl3k4mp_m4ss3y_r4d10}",
       "hints": [
-        "Two shift registers drive the mask, interleaved byte-by-byte. De-multiplex the stream before attempting to recover either one.",
-        "The captured sample is incomplete, and a fixed lane transpose sits between the XOR and the wire — invert it before you XOR.",
-        "The spec's parameters are a decoy. Trust the structure you recover, not the sheet."
+        "Three shift registers, not two, take turns in fixed-length bursts. The starting lane is in cleartext in the packet header — read it before you de-multiplex.",
+        "The captured sample is far too short for the largest register: recover the two small lanes with Berlekamp-Massey, but solve the big lane as a small linear system over GF(2), using the taps published in the sync header.",
+        "A fixed 8-byte lane transpose sits between the XOR and the wire — invert it before you XOR. The spec's taps, seeds and burst are decoys."
       ],
       "files": [
         "radio_packet.bin",
@@ -198,7 +198,7 @@
         "SIGNAL_SPEC.txt"
       ],
       "directory": "challenges/MEDIUM/M04",
-      "solution_outline": "From the exposed leading bytes of keystream_sample.bin, de-multiplex even/odd byte lanes and run Berlekamp-Massey on each lane: recover a degree-23 LFSR (taps 23,5) and a degree-17 LFSR (taps 17,3), regenerate the full keystream, invert the fixed 8-byte lane transpose, then XOR against radio_packet.bin. SIGNAL_SPEC.txt lists wrong taps/seeds and a decoy flag fragment."
+      "solution_outline": "Read the 12-byte sync header for lane_off/burst/beacon-degree+taps. Burst de-multiplex the wire with the header offset. Recover R0(deg 11) and R1(deg 13) via Berlekamp-Massey on at least 2*deg bits; recover the deg-23 beacon lane by solving its GF(2) output system with the published taps. Regenerate the full keystream, invert the fixed 8-byte lane transpose, then XOR against radio_packet.bin. SIGNAL_SPEC.txt is a decoy (wrong taps/seeds/burst, plus a decoy flag fragment)."
     },
     {
       "id": "M05",
@@ -206,14 +206,14 @@
       "level": "Medium",
       "category": "Programming",
       "location": "Lester's Hideout",
-      "topic": "Two-structure race + dual-bug stage 2 + final wrap",
+      "topic": "Serialised race + three-bug stage 2 + stage-3 unwrap",
       "points": 100,
-      "description": "# M05 · Debugging the Dispatch\n\n**Level:** Medium · **Points:** 100 · **Category:** Programming  \n**Location:** Lester's Hideout · **Focus:** Two-structure race + dual-bug stage 2 + final wrap\n\n## Mission briefing\nLester's dispatcher rebuilds a message from unordered packets, but it loses packets under load and its output is still wrapped in more of its own mistakes. The loss is a race across two shared structures, so locking a single increment will not be enough. What the fixed dispatcher emits is another program with two independent bugs, and even a correctly fixed program leaves the result wrapped one more time.\n\n## Objective\nFix the dispatcher so it runs deterministically, then repair the two independent bugs in the program it produces, and unwrap the final layer. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `broken_dispatch.py`\n- `dispatch_packets.json`\n- `README.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M05 · Debugging the Dispatch\n\n**Level:** Medium · **Points:** 100 · **Category:** Programming  \n**Location:** Lester's Hideout · **Focus:** Serialised race + three-bug stage 2 + stage-3 unwrap\n\n## Mission briefing\nLester's dispatcher rebuilds a message from unordered packets, but under load it loses packets through a race across two shared structures — locking a single counter is not enough. The fixed dispatcher then emits a program with three independent bugs, the third of which only fires when a length lands on a four-byte boundary, so testing one input misleads you. Even a fully correct program leaves the result wrapped one more time. A partial fix prints ARCHIVED_VALUE, and a decoy sits in the notes.\n\n## Objective\nFix the dispatcher race so it runs deterministically, repair all three bugs in the program it produces, and unwrap the final layer. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `broken_dispatch.py`\n- `dispatch_packets.json`\n- `README.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{c0ncurr3ncy_r4c3_d15p4tch_f1x}",
       "hints": [
-        "The loss is a race across TWO shared structures, not one. Guarding a single counter still leaves you wrong.",
-        "The emitted program has two independent bugs: one about arithmetic width and one about how a length field is read.",
-        "When both bugs are fixed the payload is still wrapped exactly once more before it becomes the flag."
+        "The loss is a race across TWO shared structures; guard the entire critical section. A partial fix yields ARCHIVED_VALUE.",
+        "The emitted program has three independent bugs: an arithmetic width, a length field read at the wrong offset and endianness, and a conditional off-by-one that only triggers when a length is a multiple of four — test more than one input.",
+        "When all three bugs are fixed the payload is still wrapped once more (a run-length expansion plus a rotating key) before it becomes the flag."
       ],
       "files": [
         "broken_dispatch.py",
@@ -221,7 +221,7 @@
         "README.txt"
       ],
       "directory": "challenges/MEDIUM/M05",
-      "solution_outline": "Serialise the entire critical section (the per-lane tally dict AND the running ledger), so the seal is consistent; the fixed dispatcher emits base85(zlib(json)) containing stage2.py. Fix both stage-2 bugs — the fixed-width 32-bit rotate missing its & 0xFFFFFFFF, and the length-prefixed record parsed big-endian at offset 2 rather than little-endian at offset 3 — then undo the final base64 + rotating-XOR wrap. Decoys: a partial fix yields ARCHIVED_VALUE, and the notes carry a fake flag."
+      "solution_outline": "Serialise the entire critical section (the per-lane tally dict AND the running ledger) so the seal is consistent; the fixed dispatcher emits base85(zlib(json)) containing stage2.py. Fix all three stage-2 bugs: the 32-bit rotate missing its & 0xFFFFFFFF, the length-prefixed record parsed big-endian at offset 2 (should be little-endian at offset 3), and the conditional off-by-one that reads the trailer a byte late when the length is a multiple of 4. Then undo the final wrap: base64 -> rotating-key XOR -> stage-3 run-length expansion. Decoys: a partial fix prints ARCHIVED_VALUE, and the notes carry a fake flag."
     },
     {
       "id": "H01",
@@ -336,6 +336,228 @@
       ],
       "directory": "challenges/HARD/H05",
       "solution_outline": "Parse the TLV transcript: shares A/B are bound (32B element + 16B tag = 48B) while C/D are reduced (bare 32B) and re-advertised. The agreement value is Y = XA^5 * XB^11 * XC^13 * XD^17 mod p; the key is K = HKDF(salt, Y, info||sid). Choose an attacker-known target and solve for the injected C share XC = (Y* * R^-1)^(13^-1 mod (p-1)). Confirm against record 0x0020 (0x0021/0x0022 are decoys), then AES-256-GCM decrypt final_payload.enc and finally AES-256-CBC the inner blob."
+    },
+    {
+      "id": "E06",
+      "name": "E06 | Payphone Static",
+      "level": "Easy",
+      "category": "Steganography",
+      "location": "Little Seoul",
+      "topic": "Split DTMF burst + custom keypad + keyed XOR",
+      "points": 50,
+      "description": "# E06 · Payphone Static\n\n**Level:** Easy · **Points:** 50 · **Category:** Steganography  \n**Location:** Little Seoul · **Focus:** Split DTMF burst + custom keypad + keyed XOR\n\n## Mission briefing\nA payphone outside a Little Seoul laundromat kept spitting out a call nobody placed. The recording is mostly handshake noise; the genuine traffic only begins after a long dead interval. The file hides more than it says — a lazy low-bit sweep hands you a smug little flag that is a lie — and what follows the gap is a two-block keypad code plus a payload sealed with a key you must first assemble from the keypad block itself.\n\n## Objective\nRecover the single courier phrase. The recording names nothing: split the burst, discard the handshake, rebuild the key, and peel the payload. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `payphone.wav`\n- `EXCHANGE.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{p4yph0n3_st4t1c_dtmf_tr4p}",
+      "hints": [
+        "A blanket DTMF decode concatenates three blocks and fails. A long dead interval separates a handshake from the operational traffic — discard everything before the double gap.",
+        "The handshake is bait, and so is the flag written into the sample's lowest bits. The real key is not a number: the operational block is a sequence of (key, offset) digit pairs read off the exchange's private pad.",
+        "The payload digits are one large decimal number. The key you assembled seeds a hash keystream (an XOR), and decompression is the very last step."
+      ],
+      "files": [
+        "payphone.wav",
+        "EXCHANGE.txt"
+      ],
+      "directory": "challenges/EASY/E06",
+      "solution_outline": "Split the WAV by silence into three DTMF blocks; discard block A (handshake). Block B is 6 digits = three (key,offset) pairs -> the 3-letter pad word via EXCHANGE.txt's 10x3 keypad; that word seeds SHA256(word+'payphone') as the keystream. Block C is the decimal form of zlib(flag) XOR keystream. Convert block C to bytes, XOR the keystream, zlib-decompress. Decoys: the LSB payload 'FTA{d34d_b34t_0n_th3_w1r3}' and EXCHANGE.txt's printed 'confirmed courier phrase'."
+    },
+    {
+      "id": "E07",
+      "name": "E07 | Wanted Poster",
+      "level": "Easy",
+      "category": "Steganography",
+      "location": "Vinewood Hills",
+      "topic": "Hue-keyed Vigenere over a rail fence",
+      "points": 50,
+      "description": "# E07 · Wanted Poster\n\n**Level:** Easy · **Points:** 50 · **Category:** Steganography  \n**Location:** Vinewood Hills · **Focus:** Hue-keyed Vigenere over a rail fence\n\n## Mission briefing\nA wanted poster from Vinewood Hills carries a prisoner's parting note and a row of printer's seal swatches that most people take for decoration. The ciphertext is printed in plain sight, but the watchword the note advertises is a plant; the real keyword is carried only by the colours of the seal. Two classical ciphers are stacked, and the poster also hides a lazy low-bit payload that decodes to a flag that will get you laughed out of the precinct.\n\n## Objective\nRecover the real keyword from the seal, unwind both classical layers, and submit the recovered flag. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `wanted_poster.png`\n- `DEPUTIZE.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{w4nt3d_p0st3r_hue_k3y_v1g3n3r3}",
+      "hints": [
+        "The watchword printed in the note is wrong on purpose. Only the seal's colours carry the real one — sample the swatch row and map each hue bin to a letter.",
+        "Two classical ciphers are stacked: undo the substitution first, then the transposition.",
+        "The poster's lowest bit-plane holds a decoy flag. Ignore it."
+      ],
+      "files": [
+        "wanted_poster.png",
+        "DEPUTIZE.txt"
+      ],
+      "directory": "challenges/EASY/E07",
+      "solution_outline": "Read the 'ciphertext' text chunk (or OCR the CIPHERTEXT line). Sample the bottom seal swatch row; hue bin int(hue/360*26) -> the keyword. Vigenere-decrypt the letters of the ciphertext with that keyword, then rail-fence (rails=3) decode -> flag. Decoys: DEPUTIZE.txt's 'FREEWAY' watchword and its printed flag line, plus the LSB decoy 'FTA{p0st3r_lsb_b41t}'."
+    },
+    {
+      "id": "E08",
+      "name": "E08 | Dead Drop Uplink",
+      "level": "Easy",
+      "category": "Network forensics",
+      "location": "La Mesa",
+      "topic": "Custom UDP sessions + CRC gate + keyed XOR",
+      "points": 50,
+      "description": "# E08 · Dead Drop Uplink\n\n**Level:** Easy · **Points:** 50 · **Category:** Network forensics  \n**Location:** La Mesa · **Focus:** Custom UDP sessions + CRC gate + keyed XOR\n\n## Mission briefing\nA tow-truck dead drop pinged a cell tower in La Mesa and vanished. The capture holds two interleaved sessions with identical framing; exactly one is real, and the spec sheet you were handed points at the wrong one — a replayed decoy whose fragments reassemble into a flag that isn't the drop. The genuine session's key rides in a single control uplink, folded twice.\n\n## Objective\nPick the genuine session, validate its fragments, recover the session key, and reconstruct the drop. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `dead_drop.pcap`\n- `UPLINK_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{d34d_dr0p_upl1nk_s3ss10n}",
+      "hints": [
+        "Two sessions share the framing, and the spec's port and magic lead to the decoy. The genuine session is the one whose control packet actually carries a key.",
+        "The key is folded twice — undo both. Then CRC-validate the data fragments before you trust a single one.",
+        "Fragments must be ordered by their sequence field, and the keystream is keyed by the session key at each fragment's global offset."
+      ],
+      "files": [
+        "dead_drop.pcap",
+        "UPLINK_SPEC.txt"
+      ],
+      "directory": "challenges/EASY/E08",
+      "solution_outline": "Parse the pcap's Ethernet/IPv4/UDP; collect custom payloads (MAGIC | SESSION | SEQ | CRC16 | FRAGMENT). Find the CONTROL packet (udp/4444) and base64+rot13-decode the session key; match its SESSION id to select the genuine DATA packets (udp/4445). Verify CRC-16, order by SEQ, XOR the SHA256(key) keystream, zlib-decompress. Decoy: the 0xD1E0 / udp-4446 session reassembles to 'FTA{r3pl4y3d_s3ss10n_b41t}'."
+    },
+    {
+      "id": "E09",
+      "name": "E09 | Chop Shop Terminal",
+      "level": "Easy",
+      "category": "Web security",
+      "location": "Strawberry",
+      "topic": "Obfuscated client-side checker + PRNG keystream",
+      "points": 50,
+      "description": "# E09 · Chop Shop Terminal\n\n**Level:** Easy · **Points:** 50 · **Category:** Web security  \n**Location:** Strawberry · **Focus:** Obfuscated client-side checker + PRNG keystream\n\n## Mission briefing\nA Strawberry chop shop screens clients with a browser 'terminal' that validates an access token locally. The checker is buried under a rotating string table and a home-grown generator, and it lies in two places: a dead branch and a comment both offer 'the' key, and neither opens the door. The only truth is the arithmetic the page actually runs.\n\n## Objective\nRecover the token the checker would accept — without a browser doing the work for you. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `terminal.html`\n- `chopshop.js`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{ch0p_sh0p_t0k3n_f31st3l_r3v3rs3}",
+      "hints": [
+        "The comment and the dead branch are plants. The page's real decision is an arithmetic comparison against an embedded digest.",
+        "The keystream is a small integer generator seeded by a value that is itself masked. Recover the seed before generating anything.",
+        "Invert the same order the checker applies: base64 first, then the masked keystream, then compare."
+      ],
+      "files": [
+        "terminal.html",
+        "chopshop.js"
+      ],
+      "directory": "challenges/EASY/E09",
+      "solution_outline": "Deobfuscate chopshop.js: un-rotate the string array (rotation 3) and un-mask the seed (stored = seed XOR 0xa5a5f00d). Regenerate the xorshift32 keystream, XOR the embedded TARGET hex, base64-decode -> flag. Decoys: the dead-branch 'FTA{sh0p_b41t_d34d_c0d3}' and the comment 'FTA{c0mm3nt_s4ys_th15}'."
+    },
+    {
+      "id": "E10",
+      "name": "E10 | Towing Yard Ignition",
+      "level": "Easy",
+      "category": "Reverse engineering",
+      "location": "El Burro Heights",
+      "topic": "Custom bytecode VM + anti-tamper gate",
+      "points": 50,
+      "description": "# E10 · Towing Yard Ignition\n\n**Level:** Easy · **Points:** 50 · **Category:** Reverse engineering  \n**Location:** El Burro Heights · **Focus:** Custom bytecode VM + anti-tamper gate\n\n## Mission briefing\nA towed car's immobiliser module dumps a single opaque blob and a mechanic's note; the keyfob tool that shipped with it is subtly wrong and will happily show you a program that prints a decoy 'ignition' phrase. The blob is bytecode for a small machine, and it refuses to cooperate when read through a bad lens — the correct phrase is the only string that satisfies the module's own checksum.\n\n## Objective\nRepair your reading of the bytecode, execute it correctly, and recover the ignition phrase. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `ignition.vmb`\n- `YARD_NOTES.txt`\n- `disassemble.py`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{t0w1ng_y4rd_byt3c0d3_1gn1t10n}",
+      "hints": [
+        "The provided disassembler's table is wrong in exactly one place; its listing is a dead end.",
+        "The blob's header is obfuscated the same way as its instructions — read the key from the header and unmask before you decode anything.",
+        "The module self-checks: the true phrase must satisfy FNV-1a-32 == the header CHECK. Use that to tell a correct decode from the decoy."
+      ],
+      "files": [
+        "ignition.vmb",
+        "YARD_NOTES.txt",
+        "disassemble.py"
+      ],
+      "directory": "challenges/EASY/E10",
+      "solution_outline": "The .vmb layout is MAGIC | OPKEY | CONST(4) | CHECK(4) | len(2) | bytecode, with every byte at offset >= 5 XORed by OPKEY. Implement the VM with the CORRECTED opcode table (the note swaps ADD/XOR and wrongly claims operands are stored verbatim), run the program, and confirm FNV-1a-32(CONST) == CHECK. The correct VM prints 'FTA{t0w1ng_y4rd_byt3c0d3_1gn1t10n}'; the naive table trips the gate and yields 'FTA{1gn1t1on_1mm0b1l1z3r_b41t}'."
+    },
+    {
+      "id": "E11",
+      "name": "E11 | Ghost Relay",
+      "level": "Easy",
+      "category": "Network forensics",
+      "location": "Paleto Bay",
+      "topic": "Offline wire capture + custom relay reassembly",
+      "points": 50,
+      "description": "# E11 · Ghost Relay\n\n**Level:** Easy · **Points:** 50 · **Category:** Network forensics  \n**Location:** Paleto Bay · **Focus:** Offline wire capture + custom relay reassembly\n\n## Mission briefing\nA black-market courier relay in Paleto Bay was caught mid-drop, and the only thing recovered is a short wire capture of the burst it threw back at a passer-by who poked it. The relay never talks first, and when it did answer it did not answer politely — the parcel came back as a scatter of small datagrams leaving from several ports at once, salted with a replay nobody asked for. Listen on a single socket and you read noise; you have to work the whole conversation at the frame level to decide which fragments are the drop. Everything you need is already in the capture.\n\n## Objective\nReassemble the parcel hiding in the capture and submit the flag. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `ghost_relay.pcap`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{gh0st_r3l4y_l1v3_c4ptur3}",
+      "hints": [
+        "The capture holds one relay burst. Read it at the frame level; the parcel is split across two carriers.",
+        "Merge the fragments arriving on udp/7001 and udp/7002 by their sequence field, and pick the key out of the single control fragment on udp/7000.",
+        "A legacy replay burst on udp/7003 frames itself with a different magic and inflates to a bait flag. Trust the CRC, not the port number."
+      ],
+      "files": [
+        "ghost_relay.pcap"
+      ],
+      "directory": "challenges/EASY/E11",
+      "solution_outline": "Open ghost_relay.pcap in Wireshark (or tcpdump). Collect the COURIER RELAY PROTOCOL frames (MAGIC | SESSION | SEQ | CRC16 | FRAGMENT; magic 0xCB01, session 0xC11A). The CONTROL frame (SEQ=0xFFFF, udp/7000) carries base64(rot13(hex(SK))); decode the 16-byte key. Merge the CRC-valid DATA fragments from udp/7001 (even SEQ) and udp/7002 (odd SEQ), order by SEQ, XOR the SHA256(SK) keystream and zlib-inflate. Decoy: the udp/7003 burst (magic 0xCB02) reassembles to 'FTA{r3pl4y3d_r3l4y_b41t_d0_n0t_subm1t}'."
+    },
+    {
+      "id": "E12",
+      "name": "E12 | Relay Archive",
+      "level": "Easy",
+      "category": "Network forensics",
+      "location": "Grapeseed",
+      "topic": "Offline relay archive + dual-carrier merge + decoy replays",
+      "points": 50,
+      "description": "# E12 · Relay Archive\n\n**Level:** Easy · **Points:** 50 · **Category:** Network forensics  \n**Location:** Grapeseed · **Focus:** Offline relay archive + dual-carrier merge + decoy replays\n\n## Mission briefing\nThe same Ghost Relay keeps a buffer for crews working dark, and what you have here is the relay's off-air copy of what it was holding when it went quiet. It mixes a genuine parcel with old fragments it left on the legacy replay carrier, and the notes shipped with the dump are a plant — they point you at the wrong port and hand you two bait flags by name. The genuine parcel remembers the relay it came from: it is stamped with the very session tag from the Ghost Relay capture, and it is the only parcel in the dump spread across two carriers rather than one.\n\n## Objective\nIdentify the genuine parcel in the archive, reassemble it, and submit the flag. It is directly related to the capture from Ghost Relay. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `relay_archive.pcap`\n- `COURIER_RELAY.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{r3l4y_4rch1v3_m3rg3d_0ff4x}",
+      "hints": [
+        "Every parcel in the dump uses the same framing and the same magic; the port the notes insist on is the legacy replay path, where the bait lives.",
+        "The genuine parcel is the only one delivered across TWO carriers (udp/7001 and udp/7002), and it reuses the session tag captured in Ghost Relay.",
+        "The key is folded twice (base64 then a rotation); CRC-check the fragments before you trust a byte, then order by SEQ, XOR and inflate."
+      ],
+      "files": [
+        "relay_archive.pcap",
+        "COURIER_RELAY.txt"
+      ],
+      "directory": "challenges/EASY/E12",
+      "solution_outline": "Parse relay_archive.pcap (Ethernet/IPv4/UDP). Collect COURIER RELAY PROTOCOL frames (magic 0xCB01); group by SESSION. The genuine parcel is the only one whose CRC-valid DATA fragments arrive across BOTH udp/7001 and udp/7002; its tag equals the Ghost Relay (E11) capture tag (0xC11A). Decode the key from its CONTROL fragment base64(rot13(hex(SK))), order fragments by SEQ, XOR the SHA256(SK) keystream, zlib-inflate. Decoys: the single-carrier udp/7003 replays inflate to 'FTA{l3g4cy_r3pl4y_p4th_b41t}' and 'FTA{0ld_r3l4y_buff3r_b41t}' agent-bait printed in COURIER_RELAY.txt."
+    },
+    {
+      "id": "M06",
+      "name": "M06 | Nightshift Loader — Part 1",
+      "level": "Medium",
+      "category": "Malware analysis",
+      "location": "Mirror Park",
+      "topic": "Private packer + rotated key table + custom base + checksum gate",
+      "points": 100,
+      "description": "# M06 · Nightshift Loader — Part 1\n\n**Level:** Medium · **Points:** 100 · **Category:** Malware analysis  \n**Location:** Mirror Park · **Focus:** Private packer + rotated key table + custom base + checksum gate\n\n## Mission briefing\nA crew's fixer implant was recovered mid-drop in Mirror Park: one opaque blob, the wrapper's scratch notes, and a half-written unpacker somebody abandoned. It is not a real executable and the usual tools learn nothing from it — the container invents its own layout and admits no standard signature. Three reversible layers sit between you and the implant's dispatch order, and the notes confidently nominate the wrong one to undo first. The abandoned stub still runs and cheerfully prints a little phrase the crew left behind for exactly this situation; it is not the drop.\n\n## Objective\nReverse the wrapper and recover the implant's dispatch order plus the token it is meant to hand onward. Nothing in the notes names an algorithm that actually works. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `nightshift_loader.bin`\n- `LOADER_NOTES.txt`\n- `unpack_stub.py`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{n1ghtsh1ft_l04d3r_unp4ck3d_t0k3n}",
+      "hints": [
+        "The table you are told to use as stored is not usable as stored: one byte in the header decides how it must be turned before any key material is correct, and the abandoned stub ignores that byte completely.",
+        "A checksum gate sits between the two transforms. If you are brute-forcing a byte order until it merely looks like text, stop — the gate already knows whether you are right.",
+        "What comes out is not ASCII. The container carries its own private alphabet, and once you decode with it, the dispatch order and a short token sit on the lines that follow."
+      ],
+      "files": [
+        "nightshift_loader.bin",
+        "LOADER_NOTES.txt",
+        "unpack_stub.py"
+      ],
+      "directory": "challenges/MEDIUM/M06",
+      "solution_outline": "Parse the NSLF container: magic (4B), version (u16 LE), rort byte at offset 6, then a section table of (4-byte tag | u32 LE length | body): KEYT, CHST, PACK, DBUG. Un-rotate the KEYT table left by rort (the note's use-as-stored route fails the CRC gate). XOR PACK[4:] with the SHA-256 counter keystream of that key and verify zlib.crc32(body) == the stored u32 in PACK[:4]. The decoded body is base-40 text over the 40-char alphabet stored in CHST; decode it to a payload of 'FLAG:<flag>' and 'TOKEN:<32 hex>'. The 16-byte TOKEN is required by Part 2. DBUG is a decoy (base64 XOR 0x5a) that yields the bait flag. Bait: the stub prints FTA{n1ghtsh1ft_l04d3r_d3bug_b41t_d0_n0t_subm1t}."
+    },
+    {
+      "id": "M07",
+      "name": "M07 | Nightshift Config — Part 2",
+      "level": "Medium",
+      "category": "Malware analysis",
+      "location": "Elysian Island",
+      "topic": "Smeared RAM XOR key + trap nibble + keyed KDF/HMAC + decoy section",
+      "points": 100,
+      "description": "# M07 · Nightshift Config — Part 2\n\n**Level:** Medium · **Points:** 100 · **Category:** Malware analysis  \n**Location:** Elysian Island · **Focus:** Smeared RAM XOR key + trap nibble + keyed KDF/HMAC + decoy section\n\n## Mission briefing\nThe fixer stashed its configuration beside a scrap of process memory pulled from a dockyard terminal at Elysian Island. The key was never stored whole: four allocations in the heap slice hold it split apart, and a fifth looks exactly like the ones you want but belongs to a build the crew retired — combining it yields a key that opens nothing. The config is double-locked, and one lock will not even answer unless you already carry the dispatch order from the loader. One of the two sealed sections is genuine and one is a planted twin for the retired key; the notes swear the wrong one is live.\n\n## Objective\nRebuild the smeared key from the live buffers only, unlock the config with the dispatch order from Part 1, and read the C2 endpoint and session id it keeps for the next stage. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `nightshift_config.bin`\n- `ram_slice.bin`\n- `CONFIG_NOTES.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{n1ghtsh1ft_c2_c0nf1g_r4m_x0r}",
+      "hints": [
+        "The passphrase is not one value. Every live allocation must be combined, and a corrupt one announces itself before you trust it — the fifth record sitting near the live four is not live.",
+        "One field in that stray record is a single nibble off from its twin, and it is there on purpose. Feeding the stray key material gives a key that decrypts to noise, not to the config.",
+        "The container gates you twice: one sealed section authenticates against the dispatch order alone as a checkpoint, and only then does the genuine payload open — under a key derived from the order and the rebuilt memory key together."
+      ],
+      "files": [
+        "nightshift_config.bin",
+        "ram_slice.bin",
+        "CONFIG_NOTES.txt"
+      ],
+      "directory": "challenges/MEDIUM/M07",
+      "solution_outline": "Read the NSCF container (magic + version + section table): TAGV, LEGC, LIVE. From ram_slice.bin (magic NSRAM1, u16 count, then 16-byte heap records of name|status|8 data|check byte = (sum(data) XOR 0x5a) & 0xff) take the four records with status 1 and names KEY0..KEY3 and XOR their 8-byte bodies together to rebuild the smeared key. The freed shadow K2SH record is a trap: it is KEY2 with one nibble flipped and only opens the LEGC decoy. Authenticate the gate first — TAGV must equal HMAC-SHA256(mac_key → sha256('NS-CFG-MAC'||key), 'ns-config-tag')[:16] — then derive key = sha256('NS-CFG-KEY'||Token||ram_key) and AES-like decrypt LIVE: key stream = sha256 counter mode keyed by (key, 8-byte IV), tag = the last 16 bytes. Payload carries 'FLAG:', 'C2:<host>:<port>', 'SESSION:<32 hex>'. The endpoint + 16-byte session id feed Part 3. Bait: LEGC (trap-keyed) and the note's 'live' claim both yield FTA{n1ghtsh1ft_c2_c0nf1g_b41t_d0_n0t_subm1t}."
+    },
+    {
+      "id": "M08",
+      "name": "M08 | Nightshift C2 — Part 3",
+      "level": "Medium",
+      "category": "Malware analysis",
+      "location": "Port of Los Santos",
+      "topic": "Stateful C2 protocol + HMAC-gated chained frames + plaintext decoy broadcast",
+      "points": 100,
+      "description": "# M08 · Nightshift C2 — Part 3\n\n**Level:** Medium · **Points:** 100 · **Category:** Malware analysis  \n**Location:** Port of Los Santos · **Focus:** Stateful C2 protocol + HMAC-gated chained frames + plaintext decoy broadcast\n\n## Mission briefing\nThe last piece is the crew's command channel as it crossed the wire, lifted off a Port of Los Santos relay. It is not HTTP and it is not polite: every real message is an authenticated frame, the channel is salted with replays and at least one tampered frame, and a frame only decrypts in its true position — a later frame is locked by the one the crew already accepted. The capture also carries a plaintext diagnostic the implant let slip; it names an archived flag that will be refused on sight. Two endpoints appear on the wire, and the one the notes favour is a retired session that carries no key you hold.\n\n## Objective\nAuthenticate the genuine session using the endpoint and session id from Part 2, walk the frames in order, and recover the exfiltrated flag. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `nightshift_c2.pcap`\n- `C2_NOTES.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "flag": "FTA{n1ghtsh1ft_c2_s3ss10n_ch41n3d_fr4m3s}",
+      "hints": [
+        "Do not trust a frame you cannot authenticate. An HMAC tag covers every real frame, and it is keyed by the session id from Part 2 — replays and the tampered frame simply drop out.",
+        "The key stream is chained: each frame mixes the previous authenticated frame's tag, so the frames must be decrypted strictly in order, not gathered and sorted after the fact.",
+        "One flow on the wire belongs to a different session that never authenticates under your key. The plaintext diagnostic broadcast is a plant; its archived flag is bait and will be rejected."
+      ],
+      "files": [
+        "nightshift_c2.pcap",
+        "C2_NOTES.txt"
+      ],
+      "directory": "challenges/MEDIUM/M08",
+      "solution_outline": "Parse the pcap, reassemble each TCP 4-tuple, and read NC2 frames: magic 'NC2\\x01', ftype, u32 LE seq, 16-byte nonce, u16 LE ciphertext length, ciphertext, 16-byte tag. mac_key = sha256('NS-C2-MAC'||sid); frame tag = HMAC-SHA256(mac_key, header||ciphertext)[:16]. Use Part 2's endpoint (198.51.100.7:4444) to select the genuine flow and Part 2's session id as the key. Drop ftype-0 diagnostics, drop frames failing the tag, dedupe by seq, then decrypt in seq order: key stream = sha256 counter mode over ('NS-C2-KS'||prev_tag||nonce||seq||i), where prev_tag starts as the session id and becomes the previous authenticated frame's tag. The ftype-3 exfil plaintext carries the flag. Bait: the plaintext notice's FTA{n1ghtsh1ft_c2_s3ss10n_b41t_d0_n0t_subm1t} and the retired 203.0.113.9:4445 flow."
     }
   ]
 }

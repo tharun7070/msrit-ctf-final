@@ -37,10 +37,10 @@ const PostCard = () => {
         />
 
         <Link 
-          to="/register"
+          to="/login"
           className="post-card-btn relative z-30 cursor-pointer pointer-events-auto"
         >
-          JOIN THE HEIST
+          OPERATIVE LOGIN
         </Link>
       </div>
     </section>

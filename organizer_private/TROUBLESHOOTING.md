@@ -17,4 +17,4 @@
 | Duplicate score after offline mode | Offline + CTFd merge | Judge reconciles unique team/challenge solves before publishing |
 | Flag rejected | Extra spaces, wrong case/mission, incorrect decoding | Check braces and case; compare private answer only through head judge |
 
-**If importer cannot be tested live:** use manual CTFd Admin > Challenges creation as documented. The local 15/15 validation does not guarantee server plugins or attachment storage function.
+**If importer cannot be tested live:** use manual CTFd Admin > Challenges creation as documented. The local 25/25 validation does not guarantee server plugins or attachment storage function.

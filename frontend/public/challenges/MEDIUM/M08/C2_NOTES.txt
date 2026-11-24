@@ -1,0 +1,18 @@
+NIGHTSHIFT C2 -- WIRE NOTE
+==========================
+
+This is the crew's command channel as it crossed the wire.  It is a small
+stateful protocol, not HTTP: every real message is a frame, and the frames are
+authenticated.  Do not trust a frame you cannot authenticate -- the channel is
+salted with replays and a couple of tampered frames.
+
+Our copy also picked up a plaintext diagnostic broadcast from the implant's
+debug path.  It announces an "archived flag" -- do not hand that in; it is a
+leftover from a build the crew retired.
+
+The channel names multiple endpoints.  Only one of them is the live C2, and you
+already have it from the config: use the endpoint AND the session id it gave
+you.  The other flow on the wire belongs to a different (retired) session and
+will not authenticate.
+
+Deliverable: the exfiltrated flag.

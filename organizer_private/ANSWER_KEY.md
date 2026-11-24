@@ -1,6 +1,6 @@
 # PRIVATE ANSWER KEY · DO NOT DISTRIBUTE
 
-**Security classification: organizer only.** Contains all 15 exact flags and reference walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or student shares. Correct score for each mission is listed below; total bounty $1,550.
+**Security classification: organizer only.** Contains all 25 exact flags and reference walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or student shares. Correct score for each mission is listed below; total bounty $2,200.
 
 ## E01 · Lester’s Pager Panic — 50 points
 
@@ -100,13 +100,13 @@ Treat impound_dossier.pdf as a PDF+GIF89a+ZIP polyglot. AES-128 key = PBKDF2-HMA
 
 ### Solving procedure
 
-register (safe) -> sync (stores a derived alias) -> load (interpolates the stored alias raw). Bypass the custom scrubber with a /*...*/ comment (it strips -- and ; but not /* */) to run a second-order UNION injection against the escrow table advertised in config.core_ledger. Authenticate with trunc(sha256('fleeca-h2'|per_user_salt|pw|user[::-1]|server_pepper))[:20] using salt+pepper read from fleeca.db, and present a valid token = HMAC(secret_key, user|nonce). Decoys: honeypot admin/sunshine and a fake vault table.
+register (safe) -> sync (stores rot13(rev(payload)); pre-compose rot13(desired[::-1])) -> load (interpolates the stored alias raw). Bypass the custom scrubber with a /*...*/ comment to run a second-order UNION injection against the real table advertised in config.core_ledger — do NOT touch the decoy escrow ledger (it trips a canary). Authenticate with trunc(sha256('fleeca-h2'|per_user_salt|pw|user[::-1]|server_pepper))[:20] using salt+pepper read from fleeca.db, and present token = HMAC(secret_key, user|nonce). Un-veil each escrow column: base64-decode then XOR the SHA256 counter-mode keystream of HMAC(session_key,'M01-escrow-veil') tagged per column. Decoys: honeypot admin/sunshine; the escrow/vault/receipts tables full of fake flags.
 
 ### Progressive hints (shown in CTFd)
 
-1. Registering is not exploiting. A later sync writes a derived copy, and only that copy is ever placed into the vulnerable query.
-2. The scrubber has a blind spot, and the loader quietly undoes one of its own protections when it reads the value back.
-3. The password hash is keyed by a per-user salt and a server pepper you must read out of the database, and a valid HMAC session token is a separate, mandatory gate.
+1. Registering is not exploiting, and the stored alias is not what you typed — a later sync writes it through one more transform (a reversal plus a rotation) that the loader never undoes. Compose your payload so it survives that round-trip.
+2. The obvious ledger is bait and it is wired to a canary: touching it poisons your session and serves decoy rows. The real table is advertised elsewhere in the database, and the escrow columns are individually veiled (base64 plus a session-keyed mask), so you must earn the session first.
+3. The password hash is keyed by a per-user salt and a server pepper you must read out of the database, and a valid HMAC session token is a separate, mandatory gate that also seeds the column veil.
 
 ---
 
@@ -118,13 +118,13 @@ register (safe) -> sync (stores a derived alias) -> load (interpolates the store
 
 ### Solving procedure
 
-Parse the classic pcap. Outer frame: magic 0xDEAD1A70 LE, type 0x0A, seal = CRC32(frame[0:12] || payload) SKIPPING the 2-byte route field. Inner frame: magic 0x1A70C0DE LE, ver==1, itype 0x5C. XOR the inner data with an LCG keystream keyed by the inner sequence, then order by the inner seq (ignore the outer seq). Decoys: a naive-whole-frame-CRC group reassembling to a fake flag, plus bad-seal / wrong-type frames.
+Parse the pcap; reassemble IPv4 fragments per (src,dst,id,proto) ordered by offset, then assemble the TCP flows. Outer frame: magic 0xDEAD1A70, type 0x0A, seal = CRC32 over frame[0:12] || payload SKIPPING the 2-byte route field. Harvest the session nonce from the first genuine frame's SESSION_MAGIC prefix. Inner frame: magic 0x1A70C0DE, itype 0x5C; XOR the inner data with keystream(nonce, inner_seq), then order by the inner seq. Decoys: a naive whole-frame-CRC group that reassembles to a fake flag, plus bad-seal / wrong-type frames.
 
 ### Progressive hints (shown in CTFd)
 
-1. Two magics, two layers. Walk the bytes by hand; nothing here is a well-known protocol tree.
-2. The seal covers only part of the frame — a whole-frame checksum rejects the genuine packets and, tellingly, accepts a decoy set.
-3. The mask is keyed by the inner sequence, not the seal, and the outermost order field is bait.
+1. Nothing here is packet-shaped yet. Reassemble the IPv4 fragments first — group by a shared IP id and sort by fragment offset — before you parse any protocol.
+2. The seal covers only part of the frame: a whole-frame checksum rejects the genuine packets and, tellingly, accepts the decoy group. The session nonce rides once, on the first genuine message — harvest it before you can unmask anything.
+3. The mask is keyed by the session nonce and the inner sequence, not by the outer order field (which is bait).
 
 ---
 
@@ -136,13 +136,13 @@ Parse the classic pcap. Outer frame: magic 0xDEAD1A70 LE, type 0x0A, seal = CRC3
 
 ### Solving procedure
 
-Verify chain_i = HMAC-SHA256(prev_chain || entry_data, salt) with the salt recovered from the log header/CHAIN_SPEC, and verify per-block checkpoint roots (every 100 entries). Locate the three forged entries at the chain/root breaks. Decode audit_delta.bin as nested RLE + index-derived XOR and apply it to repair. Derive the flag by selecting entries whose code ends '_ACCEPT' AND whose third field hashes into a given class, then combining the specified column per CHAIN_SPEC. Decoys: forged lines that pass an unkeyed chain, plus a decoy event sequence yielding a fake flag.
+Recover the 2-byte salt by brute force until the block-1 checkpoint root matches CHAIN_SPEC.txt, then verify chain_i = HMAC-SHA256(key=salt, msg=prev||entry_data) and each 100-entry checkpoint root. Repair the two broken blocks (forged seqs 604/655/812) via the triply-nested delta: columnar transpose (width 7) -> index XOR ((i*0x5D+0x1F) mod 256) -> RLE. Derive the flag from entries with the exact class token '_ACCEPT' classified by the low bit of sha256(code)[0], combining the specified column and XORing class-0 vs class-1. Decoy: the contiguous _REACCEPT run collapses to a fake flag.
 
 ### Progressive hints (shown in CTFd)
 
-1. Do not merely recompute a plain hash chain — it is keyed with a salt you must recover, and an unkeyed chain happily accepts the forgeries.
-2. There is a second integrity layer: periodic checkpoint roots over blocks. Chain and trouble-free block roots must both hold.
-3. The delta is nested (an outer RLE plus an index-derived transform), and the flag comes from a predicate spanning several fields, not from neighbouring characters.
+1. Do not merely recompute a plain hash chain — it is keyed, and an unkeyed chain happily accepts the forgeries. The salt is not stored: recover it from the published checkpoint roots (the space is tiny).
+2. More than one block is broken, and per-block roots mean you must repair each independently. Chain and block roots must both hold.
+3. The delta is nested three deep (RLE, an index-derived XOR, and a columnar transpose). The flag comes from a predicate spanning an exact class token and a cross-field hash class — not from the obvious contiguous run of easy entries.
 
 ---
 
@@ -154,13 +154,13 @@ Verify chain_i = HMAC-SHA256(prev_chain || entry_data, salt) with the salt recov
 
 ### Solving procedure
 
-From the exposed leading bytes of keystream_sample.bin, de-multiplex even/odd byte lanes and run Berlekamp-Massey on each lane: recover a degree-23 LFSR (taps 23,5) and a degree-17 LFSR (taps 17,3), regenerate the full keystream, invert the fixed 8-byte lane transpose, then XOR against radio_packet.bin. SIGNAL_SPEC.txt lists wrong taps/seeds and a decoy flag fragment.
+Read the 12-byte sync header for lane_off/burst/beacon-degree+taps. Burst de-multiplex the wire with the header offset. Recover R0(deg 11) and R1(deg 13) via Berlekamp-Massey on at least 2*deg bits; recover the deg-23 beacon lane by solving its GF(2) output system with the published taps. Regenerate the full keystream, invert the fixed 8-byte lane transpose, then XOR against radio_packet.bin. SIGNAL_SPEC.txt is a decoy (wrong taps/seeds/burst, plus a decoy flag fragment).
 
 ### Progressive hints (shown in CTFd)
 
-1. Two shift registers drive the mask, interleaved byte-by-byte. De-multiplex the stream before attempting to recover either one.
-2. The captured sample is incomplete, and a fixed lane transpose sits between the XOR and the wire — invert it before you XOR.
-3. The spec's parameters are a decoy. Trust the structure you recover, not the sheet.
+1. Three shift registers, not two, take turns in fixed-length bursts. The starting lane is in cleartext in the packet header — read it before you de-multiplex.
+2. The captured sample is far too short for the largest register: recover the two small lanes with Berlekamp-Massey, but solve the big lane as a small linear system over GF(2), using the taps published in the sync header.
+3. A fixed 8-byte lane transpose sits between the XOR and the wire — invert it before you XOR. The spec's taps, seeds and burst are decoys.
 
 ---
 
@@ -172,13 +172,13 @@ From the exposed leading bytes of keystream_sample.bin, de-multiplex even/odd by
 
 ### Solving procedure
 
-Serialise the entire critical section (the per-lane tally dict AND the running ledger), so the seal is consistent; the fixed dispatcher emits base85(zlib(json)) containing stage2.py. Fix both stage-2 bugs — the fixed-width 32-bit rotate missing its & 0xFFFFFFFF, and the length-prefixed record parsed big-endian at offset 2 rather than little-endian at offset 3 — then undo the final base64 + rotating-XOR wrap. Decoys: a partial fix yields ARCHIVED_VALUE, and the notes carry a fake flag.
+Serialise the entire critical section (the per-lane tally dict AND the running ledger) so the seal is consistent; the fixed dispatcher emits base85(zlib(json)) containing stage2.py. Fix all three stage-2 bugs: the 32-bit rotate missing its & 0xFFFFFFFF, the length-prefixed record parsed big-endian at offset 2 (should be little-endian at offset 3), and the conditional off-by-one that reads the trailer a byte late when the length is a multiple of 4. Then undo the final wrap: base64 -> rotating-key XOR -> stage-3 run-length expansion. Decoys: a partial fix prints ARCHIVED_VALUE, and the notes carry a fake flag.
 
 ### Progressive hints (shown in CTFd)
 
-1. The loss is a race across TWO shared structures, not one. Guarding a single counter still leaves you wrong.
-2. The emitted program has two independent bugs: one about arithmetic width and one about how a length field is read.
-3. When both bugs are fixed the payload is still wrapped exactly once more before it becomes the flag.
+1. The loss is a race across TWO shared structures; guard the entire critical section. A partial fix yields ARCHIVED_VALUE.
+2. The emitted program has three independent bugs: an arithmetic width, a length field read at the wrong offset and endianness, and a conditional off-by-one that only triggers when a length is a multiple of four — test more than one input.
+3. When all three bugs are fixed the payload is still wrapped once more (a run-length expansion plus a rotating key) before it becomes the flag.
 
 ---
 
@@ -269,5 +269,185 @@ Parse the TLV transcript: shares A/B are bound (32B element + 16B tag = 48B) whi
 1. More than three voices are on the line. Read the framing: some contributions carry a binding tag and some do not — the unbound ones are trusted.
 2. The session secret is a weighted product of the contributions, not a sum; steering it means solving for a share value rather than picking one.
 3. There are decoy key-confirmations. The real one sits between them, and the payload is nested twice.
+
+---
+
+## E06 · Payphone Static — 50 points
+
+**Category:** Steganography | **Location:** Little Seoul  
+**Correct flag:** `FTA{p4yph0n3_st4t1c_dtmf_tr4p}`  
+**Required evidence:** `payphone.wav`, `EXCHANGE.txt`
+
+### Solving procedure
+
+Split the WAV by silence into three DTMF blocks; discard block A (handshake). Block B is 6 digits = three (key,offset) pairs -> the 3-letter pad word via EXCHANGE.txt's 10x3 keypad; that word seeds SHA256(word+'payphone') as the keystream. Block C is the decimal form of zlib(flag) XOR keystream. Convert block C to bytes, XOR the keystream, zlib-decompress. Decoys: the LSB payload 'FTA{d34d_b34t_0n_th3_w1r3}' and EXCHANGE.txt's printed 'confirmed courier phrase'.
+
+### Progressive hints (shown in CTFd)
+
+1. A blanket DTMF decode concatenates three blocks and fails. A long dead interval separates a handshake from the operational traffic — discard everything before the double gap.
+2. The handshake is bait, and so is the flag written into the sample's lowest bits. The real key is not a number: the operational block is a sequence of (key, offset) digit pairs read off the exchange's private pad.
+3. The payload digits are one large decimal number. The key you assembled seeds a hash keystream (an XOR), and decompression is the very last step.
+
+---
+
+## E07 · Wanted Poster — 50 points
+
+**Category:** Steganography | **Location:** Vinewood Hills  
+**Correct flag:** `FTA{w4nt3d_p0st3r_hue_k3y_v1g3n3r3}`  
+**Required evidence:** `wanted_poster.png`, `DEPUTIZE.txt`
+
+### Solving procedure
+
+Read the 'ciphertext' text chunk (or OCR the CIPHERTEXT line). Sample the bottom seal swatch row; hue bin int(hue/360*26) -> the keyword. Vigenere-decrypt the letters of the ciphertext with that keyword, then rail-fence (rails=3) decode -> flag. Decoys: DEPUTIZE.txt's 'FREEWAY' watchword and its printed flag line, plus the LSB decoy 'FTA{p0st3r_lsb_b41t}'.
+
+### Progressive hints (shown in CTFd)
+
+1. The watchword printed in the note is wrong on purpose. Only the seal's colours carry the real one — sample the swatch row and map each hue bin to a letter.
+2. Two classical ciphers are stacked: undo the substitution first, then the transposition.
+3. The poster's lowest bit-plane holds a decoy flag. Ignore it.
+
+---
+
+## E08 · Dead Drop Uplink — 50 points
+
+**Category:** Network forensics | **Location:** La Mesa  
+**Correct flag:** `FTA{d34d_dr0p_upl1nk_s3ss10n}`  
+**Required evidence:** `dead_drop.pcap`, `UPLINK_SPEC.txt`
+
+### Solving procedure
+
+Parse the pcap's Ethernet/IPv4/UDP; collect custom payloads (MAGIC | SESSION | SEQ | CRC16 | FRAGMENT). Find the CONTROL packet (udp/4444) and base64+rot13-decode the session key; match its SESSION id to select the genuine DATA packets (udp/4445). Verify CRC-16, order by SEQ, XOR the SHA256(key) keystream, zlib-decompress. Decoy: the 0xD1E0 / udp-4446 session reassembles to 'FTA{r3pl4y3d_s3ss10n_b41t}'.
+
+### Progressive hints (shown in CTFd)
+
+1. Two sessions share the framing, and the spec's port and magic lead to the decoy. The genuine session is the one whose control packet actually carries a key.
+2. The key is folded twice — undo both. Then CRC-validate the data fragments before you trust a single one.
+3. Fragments must be ordered by their sequence field, and the keystream is keyed by the session key at each fragment's global offset.
+
+---
+
+## E09 · Chop Shop Terminal — 50 points
+
+**Category:** Web security | **Location:** Strawberry  
+**Correct flag:** `FTA{ch0p_sh0p_t0k3n_f31st3l_r3v3rs3}`  
+**Required evidence:** `terminal.html`, `chopshop.js`
+
+### Solving procedure
+
+Deobfuscate chopshop.js: un-rotate the string array (rotation 3) and un-mask the seed (stored = seed XOR 0xa5a5f00d). Regenerate the xorshift32 keystream, XOR the embedded TARGET hex, base64-decode -> flag. Decoys: the dead-branch 'FTA{sh0p_b41t_d34d_c0d3}' and the comment 'FTA{c0mm3nt_s4ys_th15}'.
+
+### Progressive hints (shown in CTFd)
+
+1. The comment and the dead branch are plants. The page's real decision is an arithmetic comparison against an embedded digest.
+2. The keystream is a small integer generator seeded by a value that is itself masked. Recover the seed before generating anything.
+3. Invert the same order the checker applies: base64 first, then the masked keystream, then compare.
+
+---
+
+## E10 · Towing Yard Ignition — 50 points
+
+**Category:** Reverse engineering | **Location:** El Burro Heights  
+**Correct flag:** `FTA{t0w1ng_y4rd_byt3c0d3_1gn1t10n}`  
+**Required evidence:** `ignition.vmb`, `YARD_NOTES.txt`, `disassemble.py`
+
+### Solving procedure
+
+The .vmb layout is MAGIC | OPKEY | CONST(4) | CHECK(4) | len(2) | bytecode, with every byte at offset >= 5 XORed by OPKEY. Implement the VM with the CORRECTED opcode table (the note swaps ADD/XOR and wrongly claims operands are stored verbatim), run the program, and confirm FNV-1a-32(CONST) == CHECK. The correct VM prints 'FTA{t0w1ng_y4rd_byt3c0d3_1gn1t10n}'; the naive table trips the gate and yields 'FTA{1gn1t1on_1mm0b1l1z3r_b41t}'.
+
+### Progressive hints (shown in CTFd)
+
+1. The provided disassembler's table is wrong in exactly one place; its listing is a dead end.
+2. The blob's header is obfuscated the same way as its instructions — read the key from the header and unmask before you decode anything.
+3. The module self-checks: the true phrase must satisfy FNV-1a-32 == the header CHECK. Use that to tell a correct decode from the decoy.
+
+---
+
+## E11 · Ghost Relay — 50 points
+
+**Category:** Network forensics | **Location:** Paleto Bay  
+**Correct flag:** `FTA{gh0st_r3l4y_l1v3_c4ptur3}`  
+**Required evidence:** `ghost_relay.pcap`
+
+### Solving procedure
+
+Open ghost_relay.pcap in Wireshark (or tcpdump). Collect the COURIER RELAY PROTOCOL frames (MAGIC | SESSION | SEQ | CRC16 | FRAGMENT; magic 0xCB01, session 0xC11A). The CONTROL frame (SEQ=0xFFFF, udp/7000) carries base64(rot13(hex(SK))); decode the 16-byte key. Merge the CRC-valid DATA fragments from udp/7001 (even SEQ) and udp/7002 (odd SEQ), order by SEQ, XOR the SHA256(SK) keystream and zlib-inflate. Decoy: the udp/7003 burst (magic 0xCB02) reassembles to 'FTA{r3pl4y3d_r3l4y_b41t_d0_n0t_subm1t}'.
+
+### Progressive hints (shown in CTFd)
+
+1. The capture holds one relay burst. Read it at the frame level; the parcel is split across two carriers.
+2. Merge the fragments arriving on udp/7001 and udp/7002 by their sequence field, and pick the key out of the single control fragment on udp/7000.
+3. A legacy replay burst on udp/7003 frames itself with a different magic and inflates to a bait flag. Trust the CRC, not the port number.
+
+---
+
+## E12 · Relay Archive — 50 points
+
+**Category:** Network forensics | **Location:** Grapeseed  
+**Correct flag:** `FTA{r3l4y_4rch1v3_m3rg3d_0ff4x}`  
+**Required evidence:** `relay_archive.pcap`, `COURIER_RELAY.txt`
+
+### Solving procedure
+
+Parse relay_archive.pcap (Ethernet/IPv4/UDP). Collect COURIER RELAY PROTOCOL frames (magic 0xCB01); group by SESSION. The genuine parcel is the only one whose CRC-valid DATA fragments arrive across BOTH udp/7001 and udp/7002; its tag equals the Ghost Relay (E11) capture tag (0xC11A). Decode the key from its CONTROL fragment base64(rot13(hex(SK))), order fragments by SEQ, XOR the SHA256(SK) keystream, zlib-inflate. Decoys: the single-carrier udp/7003 replays inflate to 'FTA{l3g4cy_r3pl4y_p4th_b41t}' and 'FTA{0ld_r3l4y_buff3r_b41t}' agent-bait printed in COURIER_RELAY.txt.
+
+### Progressive hints (shown in CTFd)
+
+1. Every parcel in the dump uses the same framing and the same magic; the port the notes insist on is the legacy replay path, where the bait lives.
+2. The genuine parcel is the only one delivered across TWO carriers (udp/7001 and udp/7002), and it reuses the session tag captured in Ghost Relay.
+3. The key is folded twice (base64 then a rotation); CRC-check the fragments before you trust a byte, then order by SEQ, XOR and inflate.
+
+---
+
+## M06 · Nightshift Loader — Part 1 — 100 points
+
+**Category:** Malware analysis | **Location:** Mirror Park  
+**Correct flag:** `FTA{n1ghtsh1ft_l04d3r_unp4ck3d_t0k3n}`  
+**Required evidence:** `nightshift_loader.bin`, `LOADER_NOTES.txt`, `unpack_stub.py`
+
+### Solving procedure
+
+Parse the NSLF container: magic (4B), version (u16 LE), rort byte at offset 6, then a section table of (4-byte tag | u32 LE length | body): KEYT, CHST, PACK, DBUG. Un-rotate the KEYT table left by rort (the note's use-as-stored route fails the CRC gate). XOR PACK[4:] with the SHA-256 counter keystream of that key and verify zlib.crc32(body) == the stored u32 in PACK[:4]. The decoded body is base-40 text over the 40-char alphabet stored in CHST; decode it to a payload of 'FLAG:<flag>' and 'TOKEN:<32 hex>'. The 16-byte TOKEN is required by Part 2. DBUG is a decoy (base64 XOR 0x5a) that yields the bait flag. Bait: the stub prints FTA{n1ghtsh1ft_l04d3r_d3bug_b41t_d0_n0t_subm1t}.
+
+### Progressive hints (shown in CTFd)
+
+1. The table you are told to use as stored is not usable as stored: one byte in the header decides how it must be turned before any key material is correct, and the abandoned stub ignores that byte completely.
+2. A checksum gate sits between the two transforms. If you are brute-forcing a byte order until it merely looks like text, stop — the gate already knows whether you are right.
+3. What comes out is not ASCII. The container carries its own private alphabet, and once you decode with it, the dispatch order and a short token sit on the lines that follow.
+
+---
+
+## M07 · Nightshift Config — Part 2 — 100 points
+
+**Category:** Malware analysis | **Location:** Elysian Island  
+**Correct flag:** `FTA{n1ghtsh1ft_c2_c0nf1g_r4m_x0r}`  
+**Required evidence:** `nightshift_config.bin`, `ram_slice.bin`, `CONFIG_NOTES.txt`
+
+### Solving procedure
+
+Read the NSCF container (magic + version + section table): TAGV, LEGC, LIVE. From ram_slice.bin (magic NSRAM1, u16 count, then 16-byte heap records of name|status|8 data|check byte = (sum(data) XOR 0x5a) & 0xff) take the four records with status 1 and names KEY0..KEY3 and XOR their 8-byte bodies together to rebuild the smeared key. The freed shadow K2SH record is a trap: it is KEY2 with one nibble flipped and only opens the LEGC decoy. Authenticate the gate first — TAGV must equal HMAC-SHA256(mac_key → sha256('NS-CFG-MAC'||key), 'ns-config-tag')[:16] — then derive key = sha256('NS-CFG-KEY'||Token||ram_key) and AES-like decrypt LIVE: key stream = sha256 counter mode keyed by (key, 8-byte IV), tag = the last 16 bytes. Payload carries 'FLAG:', 'C2:<host>:<port>', 'SESSION:<32 hex>'. The endpoint + 16-byte session id feed Part 3. Bait: LEGC (trap-keyed) and the note's 'live' claim both yield FTA{n1ghtsh1ft_c2_c0nf1g_b41t_d0_n0t_subm1t}.
+
+### Progressive hints (shown in CTFd)
+
+1. The passphrase is not one value. Every live allocation must be combined, and a corrupt one announces itself before you trust it — the fifth record sitting near the live four is not live.
+2. One field in that stray record is a single nibble off from its twin, and it is there on purpose. Feeding the stray key material gives a key that decrypts to noise, not to the config.
+3. The container gates you twice: one sealed section authenticates against the dispatch order alone as a checkpoint, and only then does the genuine payload open — under a key derived from the order and the rebuilt memory key together.
+
+---
+
+## M08 · Nightshift C2 — Part 3 — 100 points
+
+**Category:** Malware analysis | **Location:** Port of Los Santos  
+**Correct flag:** `FTA{n1ghtsh1ft_c2_s3ss10n_ch41n3d_fr4m3s}`  
+**Required evidence:** `nightshift_c2.pcap`, `C2_NOTES.txt`
+
+### Solving procedure
+
+Parse the pcap, reassemble each TCP 4-tuple, and read NC2 frames: magic 'NC2\x01', ftype, u32 LE seq, 16-byte nonce, u16 LE ciphertext length, ciphertext, 16-byte tag. mac_key = sha256('NS-C2-MAC'||sid); frame tag = HMAC-SHA256(mac_key, header||ciphertext)[:16]. Use Part 2's endpoint (198.51.100.7:4444) to select the genuine flow and Part 2's session id as the key. Drop ftype-0 diagnostics, drop frames failing the tag, dedupe by seq, then decrypt in seq order: key stream = sha256 counter mode over ('NS-C2-KS'||prev_tag||nonce||seq||i), where prev_tag starts as the session id and becomes the previous authenticated frame's tag. The ftype-3 exfil plaintext carries the flag. Bait: the plaintext notice's FTA{n1ghtsh1ft_c2_s3ss10n_b41t_d0_n0t_subm1t} and the retired 203.0.113.9:4445 flow.
+
+### Progressive hints (shown in CTFd)
+
+1. Do not trust a frame you cannot authenticate. An HMAC tag covers every real frame, and it is keyed by the session id from Part 2 — replays and the tampered frame simply drop out.
+2. The key stream is chained: each frame mixes the previous authenticated frame's tag, so the frames must be decrypted strictly in order, not gathered and sorted after the fact.
+3. One flow on the wire belongs to a different session that never authenticates under your key. The plaintext diagnostic broadcast is a plant; its archived flag is bait and will be rejected.
 
 ---

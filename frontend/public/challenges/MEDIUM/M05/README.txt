@@ -37,4 +37,5 @@ Reconciliation
 
     The stage-2 program is not the answer.  It unmasks one further record whose
     trailer must agree with its own payload; the payload that survives is still
-    wrapped exactly once more.
+    wrapped by an additional reversible layer (a run-length stream under a
+    rotating key) before the flag can be read.

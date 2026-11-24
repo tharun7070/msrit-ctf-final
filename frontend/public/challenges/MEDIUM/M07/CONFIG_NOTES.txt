@@ -1,0 +1,23 @@
+NIGHTSHIFT CONFIG -- RECOVERY NOTE
+=================================
+
+We pulled two artifacts before the handset died: the implant's configuration
+(nightshift_config.bin) and a raw slice of the process heap (ram_slice.bin).
+
+The config is sealed with the loader's dispatch token from Part 1.  A 16-byte
+tag at the top of the file will only agree if the token is right -- use it to
+confirm before you waste time on the body.
+
+The heap slice is a run of fixed 16-byte allocation records: a 4-character
+name, one status byte (1 = live, 0 = freed), 8 payload bytes, and a one-byte
+check over those 8 bytes.  Nothing is stored whole: the working key is smeared
+across several allocations and has to be recombined.
+
+Working theory, not yet confirmed
+---------------------------------
+  * use the retired shadow allocation, K2SH -- we were told the primary KEY2
+    was recycled during the last reimage;
+  * the section marked "legacy" is the one that carries the live config.
+
+Deliverable: the config flag.  The live config also names the C2 endpoint and
+the session id the third part is built on -- bring those forward.

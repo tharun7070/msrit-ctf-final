@@ -82,7 +82,7 @@ export default function MissionBriefing() {
         // Continue to fallback
       }
 
-      // If backend call returned null/empty, resolve from our canonical 15 challenges
+      // If backend call returned null/empty, resolve from our canonical 25 challenges
       if (!cData || !cData.name) {
         cData = ALL_15_CHALLENGES.find(
           (c) =>

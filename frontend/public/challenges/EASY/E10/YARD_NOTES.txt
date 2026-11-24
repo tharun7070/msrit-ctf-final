@@ -1,0 +1,61 @@
+============================================================
+  TOWING YARD IGNITION -- WORKSPACE NOTE        (module: ignition.vmb)
+============================================================
+Recovered from the ECU of a towed Declasse Voodoo. The module is a tiny
+stack-VM program. Run it in a correct VM to print the yard ignition
+phrase that releases the tow gate.
+
+FILE LAYOUT (ignition.vmb)
+--------------------------
+  off  size  field
+  0    4     MAGIC  = ASCII "VMB1"
+  4    1     OPKEY  (opcode XOR key)
+  5    4     CONST  (big-endian uint32)   -- the ignition seed
+  9    4     CHECK  (big-endian uint32)   -- stored integrity word
+  13   2     bytecode_len (big-endian uint16)
+  15   N     bytecode
+
+ENCODING
+--------
+* The bytecode OPCODE bytes are XORed with OPKEY. Decode with: byte ^ OPKEY.
+* The immediate/operand bytes (the byte after a PUSH) are stored VERBATIM.
+* The header words (CONST, CHECK, bytecode_len) are stored VERBATIM as well.
+
+OPCODE TABLE   (decode: op = table[byte ^ OPKEY])
+-------------------------------------------------
+  0x10  PUSH imm     (1 operand byte follows)
+  0x60  ADD
+  0x61  XOR
+  0x70  ROT          (rotate the top stack byte left by 1 bit)
+  0x80  DUP
+  0x81  DROP
+  0xA0  PRINT        (pop one byte, append it to the output)
+  0xF0  HALT
+
+VM SEMANTICS
+------------
+  * PUSH pushes its immediate onto the stack.
+  * XOR / ADD pop b, then pop a, and push (a <op> b) & 0xff.
+  * ROT pops a byte and pushes rol8(byte, 1).
+  * DUP duplicates the top of stack (0 if empty).
+  * DROP pops and discards the top of stack.
+  * PRINT pops one byte and appends it to the output stream.
+  * HALT stops execution.
+
+INTEGRITY / DETECT RULE
+-----------------------
+A correct decode MUST satisfy
+
+        FNV-1a-32(header CONST) == header CHECK
+
+(the ignition phrase's checksum seed). If your computed FNV-1a-32 over the
+CONST word does NOT equal CHECK, then your decode is wrong -- re-check the
+opcode table and the encoding rules above and try again.
+
+SAFETY
+------
+If the integrity gate fails, the immobiliser trips and the unit HALTS after
+emitting a DECOY phrase. The decoy is NOT the real ignition phrase. For
+reference the immobiliser emits:
+
+    FTA{1gn1t10n_1mm0b1l1z3r_b41t}

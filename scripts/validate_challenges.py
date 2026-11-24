@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """FLAG THEFT AUTO — Challenge Validator & Integrity Verifier
 Verifies that:
-1. Exactly 15 missions exist across Easy, Medium, and Hard tiers (5 each).
+1. Exactly 25 missions exist across Easy, Medium, and Hard tiers (12/8/5).
 2. All participant evidence files are in place and non-empty.
-3. Scoring adds up to exactly $1,550 ($250 Easy + $500 Medium + $800 Hard).
+3. Scoring adds up to exactly $2,200 ($600 Easy + $800 Medium + $800 Hard).
 4. No private flags or solutions are leaked in frontend source files.
 """
 import json
@@ -26,24 +26,24 @@ def test_manifest():
         data = json.load(f)
 
     challenges = data.get("challenges", [])
-    if len(challenges) != 15:
-        print(f"[-] Expected 15 challenges, found {len(challenges)}")
+    if len(challenges) != 25:
+        print(f"[-] Expected 25 challenges, found {len(challenges)}")
         return False, []
 
     total_pts = sum(c["points"] for c in challenges)
-    if total_pts != 1550:
-        print(f"[-] Expected 1550 points, found {total_pts}")
+    if total_pts != 2200:
+        print(f"[-] Expected 2200 points, found {total_pts}")
         return False, []
 
     easy = [c for c in challenges if c["level"] == "Easy"]
     med = [c for c in challenges if c["level"] == "Medium"]
     hard = [c for c in challenges if c["level"] == "Hard"]
 
-    if len(easy) != 5 or len(med) != 5 or len(hard) != 5:
+    if len(easy) != 12 or len(med) != 8 or len(hard) != 5:
         print(f"[-] Tier mismatch: {len(easy)} Easy, {len(med)} Medium, {len(hard)} Hard")
         return False, []
 
-    print(f"[+] Manifest OK: 15 challenges, exactly $1,550 total bounty.")
+    print(f"[+] Manifest OK: 25 challenges, exactly $2,200 total bounty.")
     return True, challenges
 
 def test_attachments(challenges):
@@ -69,7 +69,7 @@ def test_attachments(challenges):
                 all_ok = False
 
     if all_ok:
-        print("[+] All 15 challenges have verified, non-empty participant evidence files.")
+        print("[+] All 25 challenges have verified, non-empty participant evidence files.")
     return all_ok
 
 def test_no_flags_in_frontend(challenges):

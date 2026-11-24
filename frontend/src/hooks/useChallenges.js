@@ -43,7 +43,7 @@ export function useChallenges() {
           };
         });
       } else {
-        // Always provide all 15 authentic missions if CTFd is uninitialized or in preview
+        // Always provide all 20 authentic missions if CTFd is uninitialized or in preview
         enriched = ALL_15_CHALLENGES;
       }
 
@@ -61,7 +61,7 @@ export function useChallenges() {
       setSolvedIds(new Set(solves.map(s => s.challenge_id)));
     } catch (e) {
       console.warn('CTFd connection notice:', e.message);
-      // Fallback to the authentic 15 challenges
+      // Fallback to the authentic 25 challenges
       setChallenges(ALL_15_CHALLENGES);
     } finally {
       setLoading(false);

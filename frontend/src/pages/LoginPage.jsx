@@ -88,10 +88,7 @@ export default function LoginPage() {
 
         <div className="mt-8 pt-6 border-t border-white/10 flex flex-col gap-3 text-center text-sm text-gray-400">
           <div>
-            New operative?{' '}
-            <Link to="/register" className="text-pink hover:underline font-bold">
-              JOIN THE UNDERGROUND ↗
-            </Link>
+            New operative? Registration is closed — collect your crew credentials from the organizers at check-in.
           </div>
           <div>
             <Link to="/" className="text-gray-500 hover:text-gray-300 text-xs">

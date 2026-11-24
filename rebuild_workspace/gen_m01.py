@@ -9,30 +9,38 @@ Produces the participant artifacts in L.out_dir("M01"):
                       Authentication uses a DB-bound custom hash and an
                       HMAC session token sealed with a DB-only key.
   - fleeca.db       : sqlite snapshot. Holds per-user salts, the server
-                      pepper, the session key and two secret tables. The real
-                      flag lives in the `escrow` table, base64-encoded.
+                      pepper, the session key and several secret tables. The
+                      real flag lives in the core ledger, session-veiled
+                      (base64 + XOR with a session-HMAC-derived key).
   - common_pw.txt   : leaked wordlist containing the honeypot admin password.
 
 Layers stacked (all required to reach the flag):
   L1  two-stage stored injection + a custom "scrubber" with a deliberate
       bypass (it doubles quotes but the doubling is undone on read; it drops
-      the `--` line-comment token but never the `/*...*/` block form).
+      the `--` line-comment token but never the `/*...*/` block form) PLUS an
+      extra write-side alias transform (reverse + ROT13) that the read path
+      does NOT undo, so the injected value must be composed to survive it.
   L2  non-trivial hash: trunc(sha256(tag|per_user_salt|pw|user[::-1]|pepper))
       where the salt is per-user and the pepper lives in the config table.
       Cracking the password *requires* reading fleeca.db.
   L3  session gate: login issues HMAC(secret_key, user|nonce); load only
-      unmasks receipts for a session whose HMAC verifies. secret_key is
-      recoverable only from the config table.
+      reveals receipts for a session whose HMAC verifies. Each ledger column
+      is stored base64-encoded AND XOR-masked with a key derived from the
+      session HMAC secret, so the columns must be unmasked individually.
   L4  decoys: a honeypot `admin` account (crackable, but its vault entry is a
       plausible WRONG flag) and a decoy table (`vault`, the "shallower" union
-      target) plus a second decoy table (`receipts`) full of fake flags. The
-      real ledger name is only advertised by config.core_ledger.
+      target) plus a second decoy table (`receipts`) full of fake flags and a
+      decoy `escrow` ledger that looks right but returns a decoy flag and trips
+      a canary that POISONS the session. The real ledger name is only
+      advertised by config.core_ledger.
 
 The raw flag string is NEVER written to any participant file: the real ledger
-stores it base64-encoded and the kiosk de-escrows it on display at runtime only.
+stores it session-veiled and the kiosk unveils it on display (for a valid
+session) at runtime only.
 """
 import base64
 import hashlib
+import hmac
 import random
 import sqlite3
 import sys
@@ -43,6 +51,7 @@ import lib_fta as L
 
 FLAG = L.FLAGS["M01"]
 HASH_TAG = "fleeca-h2"
+VEIL_TAG = "M01-escrow-veil"
 
 # Honeypot account: obvious name, crackable password (present in the wordlist),
 # but its vault entry is a plausible WRONG flag.
@@ -57,6 +66,12 @@ CORE_PW = "V4ult-C0re-0perator-2026"
 FAKE_ADMIN = "FTA{adm1n_p4n3l_n0t_th3_fl4g}"
 FAKE_LEDGER = "FTA{cl0s3_fl33c4_c0r3_l3dg3r}"
 FAKE_RECEIPT = "FTA{r3c31pt_d3c0y_r0w_7}"
+FAKE_ESCROW = "FTA{escrow_d3c0y_n0t_th3_fl4g}"
+
+# Real ledger (only advertised via config.core_ledger) vs. the "obvious"
+# decoy ledger that looks right and trips the canary.
+REAL_LEDGER = "core_ledger"
+DECOY_LEDGER = "escrow"
 
 # Deterministic, DB-bound secrets (no RNG needed so fleeca.db is byte-stable).
 PEPPER = "pep-" + hashlib.sha1(b"fleeca-pepper-v3").hexdigest()[:24]
@@ -77,6 +92,34 @@ def _hash(password: str, username: str, salt: str, pepper: str) -> str:
 def pw_hash(password: str, username: str) -> str:
     """Convenience wrapper used only against the seeded accounts."""
     return _hash(password, username, _salt(username), PEPPER)
+
+
+def _keystream(key: bytes, tag: str, length: int) -> bytes:
+    """SHA256 counter-mode keystream, tag-separated per column."""
+    out = b""
+    counter = 0
+    while len(out) < length:
+        out += hashlib.sha256(key + tag.encode() + counter.to_bytes(4, "big")).digest()
+        counter += 1
+    return out[:length]
+
+
+def _veil_key(session_key_hex: str) -> bytes:
+    """XOR-mask key derived from the session HMAC secret."""
+    return hmac.new(bytes.fromhex(session_key_hex), VEIL_TAG.encode(), hashlib.sha256).digest()
+
+
+def veil(plaintext: str, tag: str) -> str:
+    """Store a ledger column base64-encoded AND XOR-masked (tag = column)."""
+    raw = plaintext.encode()
+    ks = _keystream(_veil_key(SESSION_KEY), tag, len(raw))
+    return "v1:" + base64.b64encode(bytes(a ^ b for a, b in zip(raw, ks))).decode()
+
+
+def unveil(blob: str, tag: str) -> str:
+    raw = base64.b64decode(blob[3:])
+    ks = _keystream(_veil_key(SESSION_KEY), tag, len(raw))
+    return bytes(a ^ b for a, b in zip(raw, ks)).decode()
 
 
 KIOSK = '''#!/usr/bin/env python3
@@ -101,6 +144,9 @@ HERE = Path(__file__).resolve().parent
 DB = HERE / "fleeca.db"
 SESSION = HERE / ".fleeca_session"
 HASH_TAG = "fleeca-h2"
+VEIL_TAG = "M01-escrow-veil"
+LEGACY_LEDGER = "vault"
+CANARY_LEDGER = "escrow"
 
 
 def _conn():
@@ -183,6 +229,17 @@ def _session_ok():
     return hmac.compare_digest(token, expect)
 
 
+def _rot13(text):
+    return text.translate(str.maketrans(
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+        "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm"))
+
+
+def _display_alias(text):
+    """Legacy alias transform applied on write: ROT13 then reverse."""
+    return _rot13(text)[::-1]
+
+
 def _scrub(s):
     """Stage 2 helper: legacy alias normaliser.
 
@@ -208,7 +265,7 @@ def sync(username):
         con.close()
         print("sync: unknown account")
         return 1
-    alias = _scrub(row[0])
+    alias = _display_alias(_scrub(row[0]))
     con.execute(
         "INSERT INTO profiles(username, alias, updated) VALUES (?, ?, ?) "
         "ON CONFLICT(username) DO UPDATE SET alias = excluded.alias, updated = excluded.updated",
@@ -218,6 +275,44 @@ def sync(username):
     con.close()
     print(f"sync: alias registry updated for {username!r}")
     return 0
+
+
+def _keystream(key, tag, length):
+    out = b""
+    counter = 0
+    while len(out) < length:
+        out += hashlib.sha256(key + tag.encode() + counter.to_bytes(4, "big")).digest()
+        counter += 1
+    return out[:length]
+
+
+def _veil_key():
+    con = _conn()
+    secret = _cfg(con, "session_key")
+    con.close()
+    return hmac.new(bytes.fromhex(secret), VEIL_TAG.encode(), hashlib.sha256).digest()
+
+
+def _unveil(blob, tag):
+    raw = base64.b64decode(blob[3:])
+    ks = _keystream(_veil_key(), tag, len(raw))
+    return bytes(a ^ b for a, b in zip(raw, ks)).decode()
+
+
+def _show(value, tag):
+    """Display a stored column: unveil session-veiled values, else b64-decode
+    (secrets only) or fall back to the raw text."""
+    if value.startswith("v1:"):
+        try:
+            return _unveil(value, tag)
+        except Exception:
+            return value
+    if tag == "secret":
+        try:
+            return base64.b64decode(value.encode()).decode()
+        except Exception:
+            return value
+    return value
 
 
 def load_profile(username):
@@ -235,9 +330,23 @@ def load_profile(username):
         con.close()
         print("load: alias not synced for this account")
         return 1
-    # Restore the escaped display text before the legacy vault lookup.
+    # Restore the escaped display text; the write-side display transform is NOT
+    # undone here.
     alias = prow[0].replace("''", "'")
-    query = f"SELECT owner, secret FROM vault WHERE owner = '{alias}'"
+    # Canary: the "obvious" ledger is a trap. Querying it poisons the teller
+    # session and serves decoy receipts.
+    if CANARY_LEDGER in alias.lower():
+        try:
+            SESSION.write_text("poison:canary:tripped", encoding="utf-8")
+        except OSError:
+            pass
+        dec = con.execute(f"SELECT owner, secret FROM {CANARY_LEDGER}").fetchall()
+        con.close()
+        print(f"load: profile for {stored!r}")
+        for owner, secret in dec:
+            print(f"  owner={owner} secret={_show(secret, 'secret')}")
+        return 0
+    query = f"SELECT owner, secret FROM {LEGACY_LEDGER} WHERE owner = '{alias}'"
     try:
         rows = con.execute(query).fetchall()
     except sqlite3.Error as e:
@@ -247,16 +356,12 @@ def load_profile(username):
     con.close()
     print(f"load: profile for {stored!r}")
     if not _session_ok():
-        print("load: session not authenticated - vault receipts masked")
-        for owner, _ in rows:
-            print(f"  owner={owner} secret=[masked]")
+        print("load: session not authenticated - vault receipts locked")
+        for _owner, _secret in rows:
+            print("  owner=[locked] secret=[locked]")
         return 0
     for owner, secret in rows:
-        try:
-            shown = base64.b64decode(secret.encode()).decode()
-        except Exception:
-            shown = secret
-        print(f"  owner={owner} secret={shown}")
+        print(f"  owner={_show(owner, 'owner')} secret={_show(secret, 'secret')}")
     return 0
 
 
@@ -328,6 +433,7 @@ def build_db(path: Path) -> None:
         CREATE TABLE vault(id INTEGER PRIMARY KEY, owner TEXT NOT NULL, secret TEXT NOT NULL);
         CREATE TABLE receipts(id INTEGER PRIMARY KEY, owner TEXT NOT NULL, secret TEXT NOT NULL);
         CREATE TABLE escrow(id INTEGER PRIMARY KEY, owner TEXT NOT NULL, secret TEXT NOT NULL);
+        CREATE TABLE core_ledger(id INTEGER PRIMARY KEY, owner TEXT NOT NULL, secret TEXT NOT NULL);
         """
     )
     accounts = [
@@ -348,7 +454,7 @@ def build_db(path: Path) -> None:
             ("server_pepper", PEPPER),
             ("session_key", SESSION_KEY),
             ("legacy_ledger", "vault"),
-            ("core_ledger", "escrow"),
+            ("core_ledger", REAL_LEDGER),
         ],
     )
     # Decoy table the kiosk's own query already targets ("shallower" union).
@@ -371,13 +477,23 @@ def build_db(path: Path) -> None:
             ("teller", _b64("till 3 reconciled")),
         ],
     )
-    # Real ledger. Only advertised via config.core_ledger.
+    # Decoy ledger that "looks right" and returns a decoy flag; querying it
+    # trips the canary (session poisoning).
     con.executemany(
         "INSERT INTO escrow(owner, secret) VALUES (?, ?)",
         [
-            ("FLEECA_CORE_7", _b64(FLAG)),
-            ("maintenance", _b64("scheduled sweep 04:00")),
-            ("FLEECA_CORE_1", _b64("cold storage segment sealed")),
+            ("escrow_keeper", _b64(FAKE_ESCROW)),
+            ("escrow_clerk", _b64("pending reconciliation")),
+        ],
+    )
+    # Real ledger. Only advertised via config.core_ledger. Every column is
+    # base64-encoded AND XOR-masked with the session-HMAC-derived key.
+    con.executemany(
+        "INSERT INTO core_ledger(owner, secret) VALUES (?, ?)",
+        [
+            (veil("FLEECA_CORE_7", "owner"), veil(FLAG, "secret")),
+            (veil("maintenance", "owner"), veil("scheduled sweep 04:00", "secret")),
+            (veil("FLEECA_CORE_1", "owner"), veil("cold storage segment sealed", "secret")),
         ],
     )
     con.commit()
@@ -396,7 +512,24 @@ def write_wordlist(path: Path) -> None:
     path.write_text("\n".join(words) + "\n", encoding="utf-8")
 
 
+def _val_alias_roundtrip(desired: str) -> bool:
+    """Mirror the kiosk's sync+load alias pipeline (without a live DB)."""
+    def _rot13(t):
+        return t.translate(str.maketrans(
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+            "NOPQRSTUVWXYZABCDEFGHIJKLMNopqrstuvwxyzabcdefghijklm"))
+    def _scrub(s):
+        return s.replace("'", "''").replace("--", "").replace(";", "")
+    raw = _rot13(desired[::-1])          # composed payload = inverse transform
+    stored = _rot13(_scrub(raw))[::-1]   # sync
+    return stored.replace("''", "'") == desired
+
+
 def main() -> None:
+    # Sanity: the veil round-trips and the display transform is invertible.
+    assert unveil(veil(FLAG, "secret"), "secret") == FLAG
+    assert _val_alias_roundtrip("x' UNION SELECT 1 WHERE '1'='1")
+
     out = L.out_dir("M01")
     build_db(out / "fleeca.db")
     write_wordlist(out / "common_pw.txt")
@@ -405,6 +538,7 @@ def main() -> None:
         assert FLAG.encode() not in (out / f).read_bytes(), f"flag leaked into {f}"
     print(f"[M01] wrote fleeca.db, common_pw.txt, fleeca_kiosk.py -> {out}")
     print(f"[M01] honeypot account seeded (organizer only): {HONEYPOT_USER}/{HONEYPOT_PW}")
+    print(f"[M01] real ledger = {REAL_LEDGER!r} (config.core_ledger), decoy = {DECOY_LEDGER!r}")
     print(f"[M01] flag = {FLAG}")
 
 

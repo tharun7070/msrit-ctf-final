@@ -1,31 +1,57 @@
-UNDERGROUND RADIO -- SIGNAL SPECIFICATION
-=========================================
+UNDERGROUND RADIO -- RECOVERED SIGNAL NOTES
+===========================================
 
-Keying
-  Transmissions are masked with a deterministic keystream produced by a
-  linear-feedback shift register of degree 23. The register is advanced once
-  per bit; each byte of keystream is emitted most-significant-bit first. The
-  register's seed and feedback taps are unit secrets and are NOT given here.
+Foreword
+  These notes were reconstructed from a damaged LSPD beacon capture. Values
+  tagged (RECORDED) are raw; values tagged (FIELD-INTEL) are unverified and
+  may describe a superseded firmware revision.
 
-Known plaintext header (exactly 64 bytes, ' ' = U+0020 padding to the right):
+Transmission masking
+  Two short feedback registers -- call them ALPHA and BRAVO -- feed the
+  masking stream. Each register is clocked once per bit and assembles its
+  output most-significant-bit first into one mask byte per eight ticks. The
+  two registers' bytes are then combined into a single mask stream by the
+  transmitter. Seeds and tap sets are unit secrets and are NOT recorded here.
 
-  LSPD EMERGENCY RADIO NET :: CHANNEL 23 SYNC BEACON :: COPY?     
+  (FIELD-INTEL, UNVERIFIED - author no longer with the unit)
+    * The two registers' byte outputs are XOR-combined into the mask.
+    * ALPHA taps: b23 and b18, seed 0x00BEEF.
+    * BRAVO taps: b19 and b6,  seed 0x0F1E2D.
+  Treat the whole block above as suspect; it did not reproduce a known
+  header during the analyst's first pass.
+
+Known plaintext header (exactly 64 bytes, ' ' = U+0020 right padding):
+
+  LSPD EMERGENCY RADIO NET :: BEACON SYNC :: ALL UNITS COPY?      
 
   (Length: 64 bytes. Everything after the visible text is ASCII spaces.)
 
-Files
-  keystream_sample.bin    64 bytes = header XOR keystream[0:64].
-                          Because the header is known, this exposes the first
-                          512 bits of the raw keystream.
+Capture integrity
+  The recorder's ring buffer faulted mid-capture and zero-filled the tail of
+  the stored sample. Only the leading 38 of the 64 channel bytes survived;
+  bytes [38:64] read as 0x00 and are LOST -- do NOT feed them to the coder as
+  if they were header bytes.
 
-  radio_packet.bin        the intercepted message XOR keystream[0:len]. The
-                          message is longer than 64 bytes, so the captured
-                          sample does not cover the whole transmission.
+Post-mask transform
+  Before a payload hits the wire the transmitter applies a fixed lane
+  interleaver: the masked bytes are written row-major into fixed-width lanes
+  and read back column-major. A stale memo claims 4-byte lanes; that figure
+  is contradicted by the current firmware's lane count.
+
+Files
+  keystream_sample.bin   bytes [0:38] = header XOR mask[0:38]; bytes [38:64]
+                         are 0x00 (redacted / lost on capture).
+  radio_packet.bin       the intercepted payload = lane_interleave(message
+                         XOR mask[0:len]).
 
 Task
-  Recover the keystream generator from the exposed 512 bits, extend it as far
-  as the packet needs, unmask the packet, and read the payload. The flag
-  (FTA{...}) is inside the decoded message.
+  Recover the mask generator structure from the surviving sample bytes,
+  regenerate as much mask as the packet needs, undo the lane interleave, and
+  read the payload. The flag (FTA{...}) is inside the decoded message.
 
 Masked byte semantics
-  plaintext_byte = ciphertext_byte XOR keystream_byte   (bitwise XOR, 8 bits)
+  masked_byte  = plaintext_byte XOR mask_byte    (bitwise XOR, 8 bits)
+  payload_byte = lane_interleave(masked_byte)     (see "Post-mask transform")
+
+Stale plaintext fragment (RECORDED - from an earlier channel, do not submit):
+  "...beacon check... FTA{lfsr_is_not_a_public_key_23} ..."

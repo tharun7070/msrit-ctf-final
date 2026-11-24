@@ -7,21 +7,21 @@
       "level": "Easy",
       "category": "Cryptography",
       "location": "Lester's Hideout",
-      "topic": "Custom base-41 encoding + modular filter",
+      "topic": "Dual modular filter + per-row stream permutation",
       "points": 50,
-      "description": "# E01 · Lester’s Pager Panic\n\n**Level:** Easy · **Points:** 50 · **Category:** Cryptography  \n**Location:** Lester's Hideout · **Focus:** Custom base-41 encoding + modular filter\n\n## Mission briefing\nLester's pager dumped a night of dispatch chatter, but only a fraction of it is his. The genuine courier packets never announce themselves — they are the rows whose numbers quietly agree, and even those are written in a private alphabet nobody documented. A stripped decoder was salvaged with the log; reverse it before you trust anything it says.\n\n## Objective\nIsolate the genuine courier rows, order them correctly, and recover the single dispatch message. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `dispatch.csv`\n- `decoder`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# E01 · Lester’s Pager Panic\n\n**Level:** Easy · **Points:** 50 · **Category:** Cryptography  \n**Location:** Lester's Hideout · **Focus:** Dual modular filter + per-row stream permutation\n\n## Mission briefing\nLester's pager dumped a whole night of dispatch chatter and only a sliver of it is his. The genuine courier packets never announce themselves: a real row must satisfy more than one arithmetic secret at once, and the ones that satisfy only one are poisoned. Even the wording is hostile — the payloads use a private alphabet that is then scrambled again, row by row, by a rule the salvaged decoder will not hand you. The drop is also re-ordered under a third, hidden key and padded with a marker you have to notice before you can trust a single byte.\n\n## Objective\nRecover the single dispatch message. Nothing in the log names the columns, the permutation, or the order. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `dispatch.csv`\n- `decoder`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{41_c1ph3r_b4s3_cust0m_m0d_p4g3r_l3st3r_2026}",
       "hints": [
-        "Most of the log is noise. The real rows are the ones where three columns happen to satisfy one quiet arithmetic rule — and nothing in the file tells you which columns.",
-        "The decoder hides both its alphabet and its base. Disassemble it; you are not meant to guess them.",
-        "Order matters twice over: the drop is sorted on two columns with opposite directions before the payloads are decoded and joined."
+        "One condition is not enough. More than one arithmetic rule must hold together for a row to be genuine, and the near-misses that satisfy just one will corrupt your output.",
+        "The decoder reveals the alphabet and radix only. Every payload is then re-scrambled per row; recover the row-dependent permutation before you trust a decoded character.",
+        "Order is decided by three keys with a fixed tie-break, and the assembled plaintext carries a short marker you must recognise and strip."
       ],
       "files": [
         "dispatch.csv",
         "decoder"
       ],
       "directory": "challenges/EASY/E01",
-      "solution_outline": "Filter rows where (col_A*col_B) mod col_C == 7; sort by (col_D % 2, -col_E); base-41 decode each payload via the reversed decoder; concatenate."
+      "solution_outline": "Keep rows satisfying BOTH (col_A*col_B) mod col_C == 7 AND (col_A+col_B) mod col_C == (col_D mod col_C). For each genuine row, base-41 decode then invert the per-row alphabet permutation idx -> (k*idx+m) mod 41 with k = 1+(col_A mod 40), m = col_D mod 41 (use pow(k,-1,41)). Sort genuine rows by (col_C mod 5 asc, col_D mod 2 asc, -col_E desc, packet_id asc). Concatenate decodes, strip the fixed 2-byte marker \\x1b\\x13. Decoys satisfy only one condition (one decodes to a fake flag); using a single filter yields garbage."
     },
     {
       "id": "E02",
@@ -29,21 +29,21 @@
       "level": "Easy",
       "category": "Cryptography",
       "location": "Vinewood Boulevard",
-      "topic": "Affine cipher + checksum filtering",
+      "topic": "Dual fingerprint gate + transposition-over-substitution",
       "points": 50,
-      "description": "# E02 · Vinewood Shift Change\n\n**Level:** Easy · **Points:** 50 · **Category:** Cryptography  \n**Location:** Vinewood Boulevard · **Focus:** Affine cipher + checksum filtering\n\n## Mission briefing\nVinewood's night-shift taxi ledger is mostly legitimate fares. One car was never supposed to be logged, and its manifest line is encrypted with a shift nobody wrote down. A decoy line decrypts perfectly under the lazy assumption — and leads nowhere.\n\n## Objective\nFind the genuine intercepted line, break its cipher, and recover the manifest. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `taxi_ledger.txt`\n- `frequency_sample.bin`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# E02 · Vinewood Shift Change\n\n**Level:** Easy · **Points:** 50 · **Category:** Cryptography  \n**Location:** Vinewood Boulevard · **Focus:** Dual fingerprint gate + transposition-over-substitution\n\n## Mission briefing\nVinewood's night-shift taxi ledger is almost all legitimate fares. One car was never meant to be logged and its manifest line is wrapped in a shift nobody wrote down. A decoy line decrypts perfectly under the lazy assumption and leads nowhere. Worse, the line is not merely substituted: a transposition sits on top, so a single-stage break returns scrambled text. The sample block is rigged the same way, so the textbook frequency attack will confidently hand you a parameter pair that is simply wrong.\n\n## Objective\nFind the genuine intercepted line, unwind both stages of its cipher, and recover the manifest. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `taxi_ledger.txt`\n- `frequency_sample.bin`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{4ff1n3_v1n3w00d_sh1ft_c0nv0y_99}",
       "hints": [
-        "Trust the checksum, not the eye. Every genuine line pins its own timestamp to a short fingerprint that must satisfy one quiet condition.",
-        "The cipher is not a simple rotation — but a separate sample block is long enough for frequency analysis to hand you both of its parameters.",
-        "There is a trap line that decodes cleanly under the obvious method. It contains no real flag."
+        "One fingerprint is not enough: the genuine line must satisfy two independent conditions, one on its timestamp and one on its route.",
+        "A substitution sits under a transposition. Undo only the substitution and you get scrambled output; you must identify the transposition width as well.",
+        "The sample is transposed too. Run frequency analysis without untransposing it first and you will recover a plausible but false (a,b)."
       ],
       "files": [
         "taxi_ledger.txt",
         "frequency_sample.bin"
       ],
       "directory": "challenges/EASY/E02",
-      "solution_outline": "Pick the row whose SHA1(timestamp) ends in a3; affine-decrypt (a=7,b=11) with parameters derived from frequency_sample.bin; ignore the Caesar-5 decoy."
+      "solution_outline": "Keep the row where SHA1(timestamp) ends in a3 AND SHA256(route) starts with nibble 4. Undo a columnar transposition of width 9, then affine-decrypt with a=7,b=11. The sample is affine(transpose(english),7,11), 441 = 9x49; naive frequency analysis returns a wrong pair (1,20). Ignore the Caesar-5 decoy (FTA{wrong_route}) and the single-stage affine decoy (a near-miss flag)."
     },
     {
       "id": "E03",
@@ -51,20 +51,20 @@
       "level": "Easy",
       "category": "Linux forensics",
       "location": "Sandy Shores",
-      "topic": "ext2 image + deleted-file recovery",
+      "topic": "ext2 recovery + multi-byte keyed mask",
       "points": 50,
-      "description": "# E03 · Sandy Shores Hidden Stash\n\n**Level:** Easy · **Points:** 50 · **Category:** Linux forensics  \n**Location:** Sandy Shores · **Focus:** ext2 image + deleted-file recovery\n\n## Mission briefing\nThe Sandy Shores safehouse yielded a dead laptop, imaged before the drive could be wiped. The file you want is already deleted — but nothing is truly gone until the blocks are reused. A dock worker's log survives on the image and is more useful than it looks.\n\n## Objective\nRecover the deleted payload from the disk image and reverse its masking. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `safehouse.img`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# E03 · Sandy Shores Hidden Stash\n\n**Level:** Easy · **Points:** 50 · **Category:** Linux forensics  \n**Location:** Sandy Shores · **Focus:** ext2 recovery + multi-byte keyed mask\n\n## Mission briefing\nThe Sandy Shores safehouse yielded a dead laptop, imaged before the drive could be wiped. Several files were deleted, and only one stash is genuine — the others are the kind of bait that rewards a shallow carve. The real payload is masked with a repeating key whose every byte is computed from two separate fields on a surviving dock-worker log, and then wrapped in two more reversible layers before it is readable. The deletion order tells you nothing; a wasted carve tells you a lot.\n\n## Objective\nRecover the genuine deleted payload from the image, identify it among the decoys, and reverse its full masking chain. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `safehouse.img`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{ext2_st4sh_r3c0v3r3d_s4ndy_51}",
       "hints": [
-        "It is a real filesystem, not an archive. Deleted inodes still carry pointers to their data if you know where to look.",
-        "The recovered bytes are compressed and then masked with a single byte. That byte is not in the deleted file — it lives in a surviving log.",
-        "The mask is derived arithmetically from a field on one specific line of that log, not read literally."
+        "More than one deleted file survives. The genuine stash matches a numeric field recorded elsewhere on the image; the bait does not.",
+        "The mask is not a single byte. It repeats, and each key byte is computed from two distinct fields on the same surviving line.",
+        "After unmasking you are still not done: the bytes sit inside two more reversible transforms before they are text."
       ],
       "files": [
         "safehouse.img"
       ],
       "directory": "challenges/EASY/E03",
-      "solution_outline": "Carve the deleted /ledger.dat from safehouse.img, zlib-decompress, XOR every byte with the key computed from activity.log line 42's hostname (ord(3rd char) ^ ord(7th char)); decode."
+      "solution_outline": "Carve the three deleted inodes; the genuine one is /ledger.dat whose sealed byte length equals the span= field on activity.log line 42. Build an 8-byte repeating XOR key arithmetically from that same line's host + relay fields; unmask, then invert the pipeline base64 -> byte-reverse -> zlib (i.e. zlib-decompress, reverse, base64-decode). Decoys /ledger.bak and /notes.tmp decode to bait flags."
     },
     {
       "id": "E04",
@@ -72,21 +72,21 @@
       "level": "Easy",
       "category": "Steganography",
       "location": "Del Perro Pier",
-      "topic": "PNG LSB (column-major 2-bit) + UTF-7",
+      "topic": "Gated bit-plane stego + geometry-keyed mask",
       "points": 50,
-      "description": "# E04 · Del Perro Camera Roll\n\n**Level:** Easy · **Points:** 50 · **Category:** Steganography  \n**Location:** Del Perro Pier · **Focus:** PNG LSB (column-major 2-bit) + UTF-7\n\n## Mission briefing\nDel Perro's pier camera caught nothing suspicious, but the file is heavier than its picture deserves. A payload rides in the low bits of its colour channels, laid out in an order no stego tool expects, wrapped in a text encoding from a forgotten decade.\n\n## Objective\nExtract the hidden message from the PNG and decode it. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `camera_roll.png`\n- `README.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# E04 · Del Perro Camera Roll\n\n**Level:** Easy · **Points:** 50 · **Category:** Steganography  \n**Location:** Del Perro Pier · **Focus:** Gated bit-plane stego + geometry-keyed mask\n\n## Mission briefing\nDel Perro's pier camera caught nothing suspicious, but the file is heavier than its picture deserves. The payload does not ride in every pixel and not in the lowest plane — only certain 'blessed' pixels carry it, and a blanket low-bit sweep returns bait. What you finally extract is masked with a key built from the image's own geometry plus a logged salt, and then wrapped twice, in a decompressor and a text encoding from a forgotten decade.\n\n## Objective\nExtract the hidden message and reverse every layer, ignoring the traps placed for the obvious tool. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `camera_roll.png`\n- `README.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{lsb_c0lumn_m4j0r_ut7_p13r}",
       "hints": [
-        "Standard LSB tools will find noise and stop. The bits live in a non-standard number of low bits, read a non-standard way.",
-        "Read the pixels down the columns, not across the rows — a watermark under a single colour channel nudges you toward the right direction.",
-        "Once you have the bitstream it is not UTF-8. It is an older, stranger text encoding."
+        "A plain LSB dump finds bait. Only some pixels are used; a watermark hints at the selection rule but does not spell it out.",
+        "The bits are not in the lowest two bit-planes, and what you extract is XOR-masked with a key derived from the image's dimensions plus a salt left in metadata.",
+        "Once unmasked, two wraps remain: a decompressor and an older text encoding."
       ],
       "files": [
         "camera_roll.png",
         "README.txt"
       ],
       "directory": "challenges/EASY/E04",
-      "solution_outline": "Read column-major; take 2 LSBs from R, then G, then B, MSB-first; parse a 2-byte big-endian length then a UTF-7 payload."
+      "solution_outline": "Parse the watermark metadata to recover the gate coefficients + salt; select pixels satisfying (3x+5y) mod 7 == 4; read bits 2..3 of R,G,B column-major; XOR with the repeating 32-byte SHA256 key; then parse a 2-byte big-endian length + gzip(utf-7(flag)). Decoys: a metadata 'flag' and a naive 2-LSB bait stream."
     },
     {
       "id": "E05",
@@ -94,20 +94,20 @@
       "level": "Easy",
       "category": "File forensics",
       "location": "Los Santos Customs",
-      "topic": "PDF/ZIP polyglot + AES + SQLite",
+      "topic": "Triple-format polyglot + PBKDF2 AES + 3-table database",
       "points": 50,
-      "description": "# E05 · Wrong Extension, Right Exit\n\n**Level:** Easy · **Points:** 50 · **Category:** File forensics  \n**Location:** Los Santos Customs · **Focus:** PDF/ZIP polyglot + AES + SQLite\n\n## Mission briefing\nA customs courier filed a manifest that is two files at once: it opens as a clean customs form and, to a different reader, as something else entirely. Folded inside is an encrypted archive — keyed by a serial the form prints in plain sight, if you can actually read the field and not just the text.\n\n## Objective\nUnwrap the polyglot, decrypt the inner archive, and query the recovered database. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `impound_dossier.pdf`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# E05 · Wrong Extension, Right Exit\n\n**Level:** Easy · **Points:** 50 · **Category:** File forensics  \n**Location:** Los Santos Customs · **Focus:** Triple-format polyglot + PBKDF2 AES + 3-table database\n\n## Mission briefing\nA customs courier filed a manifest that is three files at once: a clean customs form, to another reader something else entirely, and to a third yet another thing. `file` will not save you here. Folded inside is an encrypted archive whose passphrase is not printed anywhere — it is assembled from two separate values the form holds apart, pushed through a slow KDF, with the IV carried somewhere other than the ciphertext. What comes back is a database, and the flag sits behind a join no single table can answer.\n\n## Objective\nUnwrap the polyglot, derive the key from the two separated fields, decrypt the archive, and resolve the three-way join. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `impound_dossier.pdf`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{p0lygl0t_pdf_zip_aes_v4ult}",
       "hints": [
-        "Extensions lie. A real PDF reader and a real unzipper each see a valid file, and the bytes disagree with the name.",
-        "The decryption key is not hidden — it is on the visible form. Parse the PDF field; do not just grep the raw text.",
-        "What comes back is a database. The flag sits behind a hash that joins two tables by an unusual key."
+        "Extensions lie, and so does `file`: this document is valid as three different formats at once.",
+        "The passphrase is not one value. Combine two separate fields from the PDF through a slow KDF, and find the IV somewhere other than the ciphertext.",
+        "What comes back is a database full of decoys. Only a three-table join on an unusual token reaches the real record."
       ],
       "files": [
         "impound_dossier.pdf"
       ],
       "directory": "challenges/EASY/E05",
-      "solution_outline": "Treat impound_dossier.pdf as ZIP; AES-128-CBC decrypt vault.enc with key=MD5(serial from the PDF form field) and IV=first 16 bytes; open vault.db; resolve delivery_hash=SHA1(plate||route); read the flag column."
+      "solution_outline": "Treat impound_dossier.pdf as a PDF+GIF89a+ZIP polyglot. AES-128 key = PBKDF2-HMAC-SHA256(password = SERIAL + '|' + ROUTE_CODE, salt, 50000, dklen=16), where SERIAL is the AcroForm field 'serial' (not the body text) and ROUTE_CODE is printed in the visible body; the IV rides in the ZIP extra field. Decrypt to vault.db (tables operators/routes/seals joined on a TEXT token); the flag is the XOR of the three joined *_hex columns. Decoys: a fake flag row and a grep-able fake 'ARCHIVE KEY' comment."
     },
     {
       "id": "M01",
@@ -115,14 +115,14 @@
       "level": "Medium",
       "category": "Web security",
       "location": "Fleeca Bank",
-      "topic": "Second-order SQL injection + custom hashing",
+      "topic": "Two-stage stored injection + DB-keyed hashing + session gate",
       "points": 100,
-      "description": "# M01 · Fleeca Vault Glitch\n\n**Level:** Medium · **Points:** 100 · **Category:** Web security  \n**Location:** Fleeca Bank · **Focus:** Second-order SQL injection + custom hashing\n\n## Mission briefing\nFleeca's offline kiosk has two faces: a careful registration desk and a careless profile loader that trusts what it reads back. Its login uses a home-grown password hash no cracker will recognise. To reach the vault you must trip both.\n\n## Objective\nExploit the loader's stored-data flaw and satisfy the custom hash, then retrieve the audit record. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `fleeca_kiosk.py`\n- `fleeca.db`\n- `common_pw.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M01 · Fleeca Vault Glitch\n\n**Level:** Medium · **Points:** 100 · **Category:** Web security  \n**Location:** Fleeca Bank · **Focus:** Two-stage stored injection + DB-keyed hashing + session gate\n\n## Mission briefing\nFleeca's offline kiosk has two faces: a careful registration desk and a careless profile loader that trusts what it reads back. Registering is safe — the bug lives on a LATER visit, after a second sync step stores a derived copy of your data that is then interpolated raw. The login hash is home-grown and keyed with secrets that live only inside the database, and reaching the vault needs a valid session token on top of the injection. A honeypot admin account is waiting to waste your afternoon.\n\n## Objective\nTrip the two-stage stored-data flaw, satisfy the database-keyed hash, present a valid session, and retrieve the escrow record. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `fleeca_kiosk.py`\n- `fleeca.db`\n- `common_pw.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{s3c0nd_0rd3r_fl33c4_byp4ss}",
       "hints": [
-        "Registration is safe. The bug is on the second visit, when stored data is reused inside a query that was never parameterised.",
-        "The hash is not any known algorithm. Treat the script itself as its documentation.",
-        "You need both a working credential and a broken query — either alone returns nothing."
+        "Registering is not exploiting. A later sync writes a derived copy, and only that copy is ever placed into the vulnerable query.",
+        "The scrubber has a blind spot, and the loader quietly undoes one of its own protections when it reads the value back.",
+        "The password hash is keyed by a per-user salt and a server pepper you must read out of the database, and a valid HMAC session token is a separate, mandatory gate."
       ],
       "files": [
         "fleeca_kiosk.py",
@@ -130,7 +130,7 @@
         "common_pw.txt"
       ],
       "directory": "challenges/MEDIUM/M01",
-      "solution_outline": "Register a payload username, trigger the load-profile step so the stored value is interpolated into the second query, and authenticate with the custom hash sha256(pw + user[::-1] + 'GTA_SALT_v2')[:16]. Both gates must pass before the flag is returned."
+      "solution_outline": "register (safe) -> sync (stores a derived alias) -> load (interpolates the stored alias raw). Bypass the custom scrubber with a /*...*/ comment (it strips -- and ; but not /* */) to run a second-order UNION injection against the escrow table advertised in config.core_ledger. Authenticate with trunc(sha256('fleeca-h2'|per_user_salt|pw|user[::-1]|server_pepper))[:20] using salt+pepper read from fleeca.db, and present a valid token = HMAC(secret_key, user|nonce). Decoys: honeypot admin/sunshine and a fake vault table."
     },
     {
       "id": "M02",
@@ -138,21 +138,21 @@
       "level": "Medium",
       "category": "Network forensics",
       "location": "Los Santos International Airport",
-      "topic": "Custom binary protocol + CRC32 gating",
+      "topic": "Nested frames + scoped seal + sequence-keyed mask",
       "points": 100,
-      "description": "# M02 · Airport Ghost Flight\n\n**Level:** Medium · **Points:** 100 · **Category:** Network forensics  \n**Location:** Los Santos International Airport · **Focus:** Custom binary protocol + CRC32 gating\n\n## Mission briefing\nLSIA's tower talks to a plane radar insists isn't there. The capture is raw wire, not a tidy protocol tree: the tower's own packets ride inside ordinary TCP, sealed with a checksum, numbered, and masked with that very seal. Most of them are fakes.\n\n## Objective\nReconstruct the ghost flight's callsign from the capture. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `airport_traffic.pcap`\n- `MANIFEST.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M02 · Airport Ghost Flight\n\n**Level:** Medium · **Points:** 100 · **Category:** Network forensics  \n**Location:** Los Santos International Airport · **Focus:** Nested frames + scoped seal + sequence-keyed mask\n\n## Mission briefing\nLSIA's tower talks to a plane radar insists isn't there. The capture is raw wire with two layers of framing: the tower's own packets ride inside ordinary TCP, and inside those sits yet another frame with its own magic. The seal is computed over part of each frame, not all of it, and the payload is masked by the inner sequence rather than by the seal. Most packets are fakes, and the outer ordering field is a deliberate lie.\n\n## Objective\nWalk both framing layers, keep only the genuinely-sealed messages, and reconstruct the ghost flight's callsign. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `airport_traffic.pcap`\n- `MANIFEST.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{b1n_pr0t0_crc32_gh0st_fl1ght}",
       "hints": [
-        "It is not HTTP. Walk the bytes by hand and look for a four-byte signature that marks the tower's own messages.",
-        "Not every sealed message is genuine: some fail their seal, and some carry the wrong message class. Trust only the verified ones.",
-        "The seal is also the mask, and the messages carry their own order — capture order is a red herring."
+        "Two magics, two layers. Walk the bytes by hand; nothing here is a well-known protocol tree.",
+        "The seal covers only part of the frame — a whole-frame checksum rejects the genuine packets and, tellingly, accepts a decoy set.",
+        "The mask is keyed by the inner sequence, not the seal, and the outermost order field is bait."
       ],
       "files": [
         "airport_traffic.pcap",
         "MANIFEST.txt"
       ],
       "directory": "challenges/MEDIUM/M02",
-      "solution_outline": "Parse the classic pcap; keep frames whose magic is 0xDEAD1A70, whose CRC32 checks out and whose type is 0x0A; order by the little-endian uint32 at payload offset 6; XOR payload[10:] with the frame's CRC32 bytes; concatenate."
+      "solution_outline": "Parse the classic pcap. Outer frame: magic 0xDEAD1A70 LE, type 0x0A, seal = CRC32(frame[0:12] || payload) SKIPPING the 2-byte route field. Inner frame: magic 0x1A70C0DE LE, ver==1, itype 0x5C. XOR the inner data with an LCG keystream keyed by the inner sequence, then order by the inner seq (ignore the outer seq). Decoys: a naive-whole-frame-CRC group reassembling to a fake flag, plus bad-seal / wrong-type frames."
     },
     {
       "id": "M03",
@@ -160,14 +160,14 @@
       "level": "Medium",
       "category": "Log forensics",
       "location": "Los Santos Police Department",
-      "topic": "Hash-chain verification + tamper reconstruction",
+      "topic": "Keyed hash chain + block checkpoints + nested delta",
       "points": 100,
-      "description": "# M03 · LSPD Midnight Audit\n\n**Level:** Medium · **Points:** 100 · **Category:** Log forensics  \n**Location:** Los Santos Police Department · **Focus:** Hash-chain verification + tamper reconstruction\n\n## Mission briefing\nLSPD's overnight auth log claims to be tamper-evident: every line is chained to the previous one by a hash. Three lines are lies, and the chain knows it. A sidecar delta holds what the originals should have said.\n\n## Objective\nVerify the chain, locate and repair the forgeries, and extract the encoded flag. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `lspd_auth.log`\n- `audit_delta.bin`\n- `CHAIN_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M03 · LSPD Midnight Audit\n\n**Level:** Medium · **Points:** 100 · **Category:** Log forensics  \n**Location:** Los Santos Police Department · **Focus:** Keyed hash chain + block checkpoints + nested delta\n\n## Mission briefing\nLSPD's overnight auth log claims to be tamper-evident: every line is chained to the previous one by a hash, and periodic checkpoints root each block. Three lines are lies. A plain unkeyed recomputation will 'verify' those forgeries, which is exactly the trap — the chain is keyed by a salt you must find, and both the chain and the block roots must agree. A sidecar delta holds what the originals should have said, but it is nested, and the flag is not a tidy pairwise XOR of adjacent characters.\n\n## Objective\nVerify the keyed chain and its checkpoints, repair the forgeries via the nested delta, and derive the encoded flag from a cross-field predicate. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `lspd_auth.log`\n- `audit_delta.bin`\n- `CHAIN_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{h4sh_ch41n_t4mp3r_l5pd_aud1t}",
       "hints": [
-        "Do not read the log — recompute it. Each entry's chain hash must equal the hash of the previous chain hash plus the entry data.",
-        "The chain breaks exactly where it was forged. The binary delta is not a plain patch; decode its custom run-length format first.",
-        "After repair the flag hides across the accepted events: their event codes, folded pairwise."
+        "Do not merely recompute a plain hash chain — it is keyed with a salt you must recover, and an unkeyed chain happily accepts the forgeries.",
+        "There is a second integrity layer: periodic checkpoint roots over blocks. Chain and trouble-free block roots must both hold.",
+        "The delta is nested (an outer RLE plus an index-derived transform), and the flag comes from a predicate spanning several fields, not from neighbouring characters."
       ],
       "files": [
         "lspd_auth.log",
@@ -175,7 +175,7 @@
         "CHAIN_SPEC.txt"
       ],
       "directory": "challenges/MEDIUM/M03",
-      "solution_outline": "Implement SHA256(prev_chain_hash + entry_data) verification; find the three forged entries at the chain breaks; apply the RLE-encoded audit_delta.bin to repair them; XOR adjacent event_code characters of the ACCEPT entries to recover the flag."
+      "solution_outline": "Verify chain_i = HMAC-SHA256(prev_chain || entry_data, salt) with the salt recovered from the log header/CHAIN_SPEC, and verify per-block checkpoint roots (every 100 entries). Locate the three forged entries at the chain/root breaks. Decode audit_delta.bin as nested RLE + index-derived XOR and apply it to repair. Derive the flag by selecting entries whose code ends '_ACCEPT' AND whose third field hashes into a given class, then combining the specified column per CHAIN_SPEC. Decoys: forged lines that pass an unkeyed chain, plus a decoy event sequence yielding a fake flag."
     },
     {
       "id": "M04",
@@ -183,14 +183,14 @@
       "level": "Medium",
       "category": "Cryptography",
       "location": "Underground Market",
-      "topic": "LFSR keystream + Berlekamp-Massey",
+      "topic": "Interleaved LFSRs + partial KPA + lane transpose",
       "points": 100,
-      "description": "# M04 · Underground XOR Radio\n\n**Level:** Medium · **Points:** 100 · **Category:** Cryptography  \n**Location:** Underground Market · **Focus:** LFSR keystream + Berlekamp-Massey\n\n## Mission briefing\nA black-market radio burst is only a few hundred bytes, but its keystream came from a machine, not a passphrase. A short sample of a known header was captured alongside it — enough to rebuild the generator itself.\n\n## Objective\nReconstruct the keystream generator and decrypt the packet. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `radio_packet.bin`\n- `keystream_sample.bin`\n- `SIGNAL_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M04 · Underground XOR Radio\n\n**Level:** Medium · **Points:** 100 · **Category:** Cryptography  \n**Location:** Underground Market · **Focus:** Interleaved LFSRs + partial KPA + lane transpose\n\n## Mission briefing\nA black-market radio burst is only a few hundred bytes, but its keystream came from two machines, not one, and they are multiplexed byte-by-byte on the wire. Only part of a known header was captured alongside it, and a fixed lane transpose sits between the XOR and the bytes you see. The signal spec is bait: it lists parameters that are confidently wrong.\n\n## Objective\nDe-multiplex the two generators, recover both from the partial sample, undo the transpose, and decrypt the packet. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `radio_packet.bin`\n- `keystream_sample.bin`\n- `SIGNAL_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{lfsr23_b3rl3k4mp_m4ss3y_r4d10}",
       "hints": [
-        "This is not a repeating human key. The keystream comes from a shift register, and the sample hands you its output bits.",
-        "The register is large enough that brute force is hopeless — recover its structure algorithmically from the bit sequence.",
-        "Once you can predict the stream, the rest is a flat XOR."
+        "Two shift registers drive the mask, interleaved byte-by-byte. De-multiplex the stream before attempting to recover either one.",
+        "The captured sample is incomplete, and a fixed lane transpose sits between the XOR and the wire — invert it before you XOR.",
+        "The spec's parameters are a decoy. Trust the structure you recover, not the sheet."
       ],
       "files": [
         "radio_packet.bin",
@@ -198,7 +198,7 @@
         "SIGNAL_SPEC.txt"
       ],
       "directory": "challenges/MEDIUM/M04",
-      "solution_outline": "XOR keystream_sample.bin with the known header from SIGNAL_SPEC.txt to obtain the keystream; run Berlekamp-Massey over GF(2) to recover the degree-23 LFSR (taps {23,5}) and its state; regenerate the full keystream; XOR it against radio_packet.bin."
+      "solution_outline": "From the exposed leading bytes of keystream_sample.bin, de-multiplex even/odd byte lanes and run Berlekamp-Massey on each lane: recover a degree-23 LFSR (taps 23,5) and a degree-17 LFSR (taps 17,3), regenerate the full keystream, invert the fixed 8-byte lane transpose, then XOR against radio_packet.bin. SIGNAL_SPEC.txt lists wrong taps/seeds and a decoy flag fragment."
     },
     {
       "id": "M05",
@@ -206,14 +206,14 @@
       "level": "Medium",
       "category": "Programming",
       "location": "Lester's Hideout",
-      "topic": "Concurrency race + 32-bit checksum",
+      "topic": "Two-structure race + dual-bug stage 2 + final wrap",
       "points": 100,
-      "description": "# M05 · Debugging the Dispatch\n\n**Level:** Medium · **Points:** 100 · **Category:** Programming  \n**Location:** Lester's Hideout · **Focus:** Concurrency race + 32-bit checksum\n\n## Mission briefing\nLester's dispatcher is meant to rebuild a message from unordered packets, but it loses some under load, and its output is still wrapped in two more layers of its own mistakes. Two programs, two bugs, one flag.\n\n## Objective\nFix the dispatcher, run it deterministically, then repair the second-stage program it produces. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `broken_dispatch.py`\n- `dispatch_packets.json`\n- `README.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# M05 · Debugging the Dispatch\n\n**Level:** Medium · **Points:** 100 · **Category:** Programming  \n**Location:** Lester's Hideout · **Focus:** Two-structure race + dual-bug stage 2 + final wrap\n\n## Mission briefing\nLester's dispatcher rebuilds a message from unordered packets, but it loses packets under load and its output is still wrapped in more of its own mistakes. The loss is a race across two shared structures, so locking a single increment will not be enough. What the fixed dispatcher emits is another program with two independent bugs, and even a correctly fixed program leaves the result wrapped one more time.\n\n## Objective\nFix the dispatcher so it runs deterministically, then repair the two independent bugs in the program it produces, and unwrap the final layer. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `broken_dispatch.py`\n- `dispatch_packets.json`\n- `README.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{c0ncurr3ncy_r4c3_d15p4tch_f1x}",
       "hints": [
-        "The loss is a race, not a logic slip — the shared counter moves without protection. More threads make it worse, not better.",
-        "What the fixed dispatcher produces is not the flag. It is another program, and that program has its own bug.",
-        "The second bug is about arithmetic width: the value must be computed as if the register were 32 bits wide, which Python will not do for you."
+        "The loss is a race across TWO shared structures, not one. Guarding a single counter still leaves you wrong.",
+        "The emitted program has two independent bugs: one about arithmetic width and one about how a length field is read.",
+        "When both bugs are fixed the payload is still wrapped exactly once more before it becomes the flag."
       ],
       "files": [
         "broken_dispatch.py",
@@ -221,7 +221,7 @@
         "README.txt"
       ],
       "directory": "challenges/MEDIUM/M05",
-      "solution_outline": "Guard the shared counter with a lock; the fixed dispatcher emits a base85+zlib JSON blob containing stage2.py; correct stage2's checksum so it masks to 32 bits explicitly; its output is the flag."
+      "solution_outline": "Serialise the entire critical section (the per-lane tally dict AND the running ledger), so the seal is consistent; the fixed dispatcher emits base85(zlib(json)) containing stage2.py. Fix both stage-2 bugs — the fixed-width 32-bit rotate missing its & 0xFFFFFFFF, and the length-prefixed record parsed big-endian at offset 2 rather than little-endian at offset 3 — then undo the final base64 + rotating-XOR wrap. Decoys: a partial fix yields ARCHIVED_VALUE, and the notes carry a fake flag."
     },
     {
       "id": "H01",
@@ -229,21 +229,21 @@
       "level": "Hard",
       "category": "Reverse engineering",
       "location": "Fort Zancudo Military Base",
-      "topic": "Obfuscated ELF + anti-debug + custom VM",
+      "topic": "Anti-analysis traps + chained VMs + runtime-keyed vault",
       "points": 160,
-      "description": "# H01 · Zancudo Deadbolt\n\n**Level:** Hard · **Points:** 160 · **Category:** Reverse engineering  \n**Location:** Fort Zancudo Military Base · **Focus:** Obfuscated ELF + anti-debug + custom VM\n\n## Mission briefing\nFort Zancudo's Hangar 13 deadbolt runs firmware nobody has logged into since the desert went sideways. Your only copy is a stripped native binary that refuses to be watched and asks for a single operator passphrase. It is under no obligation to tell you the truth about why it says no.\n\n## Objective\nReverse the station's check and recover the operator passphrase. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `zancudo_gate`\n- `OPERATIONS.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# H01 · Zancudo Deadbolt\n\n**Level:** Hard · **Points:** 160 · **Category:** Reverse engineering  \n**Location:** Fort Zancudo Military Base · **Focus:** Anti-analysis traps + chained VMs + runtime-keyed vault\n\n## Mission briefing\nFort Zancudo's Hangar 13 deadbolt runs firmware nobody has logged into since the desert went sideways. Your only copy is a stripped native binary that refuses to be watched and asks for a single operator passphrase. It is under no obligation to tell you the truth about why it says no — and when it is being watched, it lies with a straight face and a confident banner. Behind the flattened dispatchers are two chained virtual machines, and the station's tables are not sitting in plaintext in the file.\n\n## Objective\nDefeat the anti-analysis traps, reverse both virtual machines, and recover the operator passphrase. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `zancudo_gate`\n- `OPERATIONS.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{z4nclud0_vm_d34db0lt_unl0ck}",
       "hints": [
-        "It phones home before it opens. If a debugger is on the line it stays shut and feeds you a story instead of the truth.",
-        "The real decision hides behind a single flattened switch — reach past the dispatcher and you will find the station's tables in writable data.",
-        "A 256-byte permutation guards a prime modulus. Undo the shuffle, then undo the multiplication beneath that prime, byte by byte."
+        "It lies when it is being watched. Any tracing tool that trips a trap is handed a confident, WRONG answer — do not trust a 'success'.",
+        "Two virtual machines, one seeding the other, and the vault tables are decrypted at runtime rather than stored in the file.",
+        "The check runs four transforms deep; reverse them in order, and reproduce how the binary derives its vault key at run time."
       ],
       "files": [
         "zancudo_gate",
         "OPERATIONS.txt"
       ],
       "directory": "challenges/HARD/H01",
-      "solution_outline": "Defeat both anti-debug traps; locate the .data vault (a unique 256-byte permutation of 0..255 preceded by a u32 length); per byte compute r = TARGET[i] * K[i]^-1 mod 251 and invert the S-box; the recovered string is the flag."
+      "solution_outline": "Defeat four independent anti-debug gates (ptrace, /proc/self/status TracerPid, a timing probe, and a parent-process-name check) — any trip diverts to a fake success path that emits a WRONG flag. VM1's result XOR-masks VM2's bytecode. The vault (need/SBOX/K/TARGET/checksum/mix) is XOR-encrypted in .rodata and decrypted at runtime with an xorshift64 keystream seeded by splitmix64(C, argv length, env byte, v1, v2). The layered check is: length gate -> FNV-1a checksum -> (SBOX[in[i]]*K[i]) mod 251 -> HMAC-like hmix. The passphrase is the flag."
     },
     {
       "id": "H02",
@@ -251,14 +251,14 @@
       "level": "Hard",
       "category": "Algorithms",
       "location": "Final Getaway",
-      "topic": "Graph isomorphism + spectral fingerprint",
+      "topic": "Weighted graph isomorphism + spectral fingerprint",
       "points": 160,
-      "description": "# H02 · The Recursive Freeway\n\n**Level:** Hard · **Points:** 160 · **Category:** Algorithms  \n**Location:** Final Getaway · **Focus:** Graph isomorphism + spectral fingerprint\n\n## Mission briefing\nThe getaway routing grid is a graph of hundreds of junctions. Somewhere inside it sits a district that matches a stolen blueprint exactly — and only its spectral signature proves it. Brute force will not finish in time.\n\n## Objective\nFind the unique matching subgraph and derive the clearance flag from it. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `junctions.json`\n- `template.json`\n- `PROTOCOL.md`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# H02 · The Recursive Freeway\n\n**Level:** Hard · **Points:** 160 · **Category:** Algorithms  \n**Location:** Final Getaway · **Focus:** Weighted graph isomorphism + spectral fingerprint\n\n## Mission briefing\nThe getaway routing grid is a weighted graph in which every junction looks alike — degrees are useless as a filter. Somewhere inside sits a district that matches a stolen blueprint exactly, and several near-miss districts differ from it by a single edge or a single weight. Only the weighted spectral signature decides, and the blueprint's labels are read in an order that is not the node index. Brute force will not finish in time.\n\n## Objective\nFind the unique weight-consistent matching district and derive the clearance flag from it exactly as PROTOCOL.md specifies. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `junctions.json`\n- `template.json`\n- `PROTOCOL.md`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{sp3ctr4l_fr33w4y_gr4ph_150m0rph}",
       "hints": [
-        "Match the blueprint topologically first — degree sequence and local structure prune almost everything.",
-        "The blueprint is isomorphic to exactly one subgraph. If several look plausible, the deciding evidence is spectral.",
-        "The ordered eigenvalues of the matching subgraph's Laplacian are the fingerprint; the flag itself is built from that subgraph's node labels exactly as PROTOCOL.md specifies."
+        "Degrees will not help you — every junction looks alike. Local structure and edge weights must do the pruning.",
+        "Several districts are almost the blueprint; only one matches the weighted spectral fingerprint exactly.",
+        "The blueprint's labels are read in an order given by an invariant of the matched district, not by node index."
       ],
       "files": [
         "junctions.json",
@@ -266,7 +266,7 @@
         "PROTOCOL.md"
       ],
       "directory": "challenges/HARD/H02",
-      "solution_outline": "Pre-filter candidate nodes by degree sequence and clustering coefficient; find the unique induced 12-node subgraph isomorphic to template.json; verify it via the ordered Laplacian eigenvalue fingerprint; build the flag from the subgraph's node labels per PROTOCOL.md."
+      "solution_outline": "The junctions form a 4-regular weighted network; a topological induced-subgraph search finds 5 matches (4 near-miss decoys differing by one edge/weight). Narrow to the unique district whose weighted normalised Laplacian spectrum matches the blueprint's (rounded), then order the district's node labels by descending weighted eigenvector centrality (Perron-positive sign convention) and assemble the flag per PROTOCOL.md."
     },
     {
       "id": "H03",
@@ -274,21 +274,21 @@
       "level": "Hard",
       "category": "Multi-stage forensics",
       "location": "Los Santos Police Department",
-      "topic": "5-layer stego + cryptographic nesting",
+      "topic": "7-layer chained stego + cryptographic nesting",
       "points": 160,
-      "description": "# H03 · Impound Evidence Matryoshka\n\n**Level:** Hard · **Points:** 160 · **Category:** Multi-stage forensics  \n**Location:** Los Santos Police Department · **Focus:** 5-layer stego + cryptographic nesting\n\n## Mission briefing\nLSPD impounded a camera with a single frame and a note claiming the case was closed. Five layers deep, three of them are bait. Only one path yields something that runs.\n\n## Objective\nPeel the layers, ignore the decoys, and run the final stage to reveal the flag. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `impound_camera.png`\n- `EVIDENCE_NOTE.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# H03 · Impound Evidence Matryoshka\n\n**Level:** Hard · **Points:** 160 · **Category:** Multi-stage forensics  \n**Location:** Los Santos Police Department · **Focus:** 7-layer chained stego + cryptographic nesting\n\n## Mission briefing\nLSPD impounded a camera with a single frame and a note claiming the case was closed. Seven layers deep, three of them are bait. A blanket low-bit dump is poisoned; the note's frequency table gives the stride, not the codes; and each later shell is keyed by something recovered from the shell before it, so you cannot start in the middle. Only one path yields something that runs.\n\n## Objective\nPeel the chained layers, discard the decoys, and run the final stage to reveal the flag. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `impound_camera.png`\n- `EVIDENCE_NOTE.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{m4try0shk4_f1v3_l4y3rs_c4rv3d}",
       "hints": [
-        "The PNG hides something in its low bits — but the layout is not standard. The note's frequency table is a tree, not a code.",
-        "One layer is encrypted; its passphrase is derived from metadata coordinates, not from the picture.",
-        "Two of the intermediate artefacts are deliberate dead ends. The real final layer is code, and code must be executed."
+        "A plain low-bit sweep returns bait. Only certain pixel slots carry the payload — the note's frequency table sets the stride and offset, but not the codes.",
+        "Keys depend on the layer before: later shells use nonces recovered earlier, so the chain must be walked in order.",
+        "Three artefacts are deliberate dead ends. The real final layer is code, and code must be executed."
       ],
       "files": [
         "impound_camera.png",
         "EVIDENCE_NOTE.txt"
       ],
       "directory": "challenges/HARD/H03",
-      "solution_outline": "LSB column-major 2-bit extraction, then AES-256-CTR (PBKDF2 key from the metadata-derived passphrase), then an MTX-1 matrix code, then a Huffman decode using the tree from EVIDENCE_NOTE.txt, then run the recovered Python stage, which deterministically prints the flag."
+      "solution_outline": "Gated PNG LSB (stride/offset from the note's frequency table) -> AES-256-CTR (PBKDF2 key from the metadata-derived passphrase) -> password-gated ZIP in the trailing bytes (password = the badge recovered at layer 2) -> AES-256-GCM (nonce = SHA256('gcm'||TAG)[:12], TAG from layer 1) -> MTX-1 matrix code -> Huffman decode using the frequency table from the note -> run the recovered Python stage, which deterministically prints the flag. Decoys: PngInfo 'flag', EXIF description, trailing-bytes tag, and a ZIP bait file, each a fake flag."
     },
     {
       "id": "H04",
@@ -296,14 +296,14 @@
       "level": "Hard",
       "category": "Cryptography",
       "location": "Fleeca Bank",
-      "topic": "RSA-CRT fault attack + timing oracle",
+      "topic": "Blinded RSA-CRT fault + timing oracle + freshness gate",
       "points": 160,
-      "description": "# H04 · LEGAL RAGGING\n\n**Level:** Hard · **Points:** 160 · **Category:** Cryptography  \n**Location:** Fleeca Bank · **Focus:** RSA-CRT fault attack + timing oracle\n\n## Mission briefing\nFleeca's mock gateway signs bank orders with RSA-CRT and keeps a 'debug' signing route it was never supposed to ship. Occasionally that route lies about one of its two internal halves. Two signatures of the same order are enough to undo the key — and a second weakness in verification confirms the forgery.\n\nSPECIAL OFFLINE HINT — CREW FITNESS CHECK\n\nVisit the organizer desk to unlock an optional hint. One willing team representative can complete 10 push-ups, or choose an equivalent non-physical logic task. The organizer will provide the hint privately. This activity is optional, supervised and compliant with college rules — there is no pressure, humiliation or compulsory physical activity.\n\n## Objective\nRecover the signing key from the faulty debug route, forge an admin order, and unlock the vault. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `bank_gateway.py`\n- `guest.token`\n- `AUDIT_BRIEF.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# H04 · LEGAL RAGGING\n\n**Level:** Hard · **Points:** 160 · **Category:** Cryptography  \n**Location:** Fleeca Bank · **Focus:** Blinded RSA-CRT fault + timing oracle + freshness gate\n\n## Mission briefing\nFleeca's mock gateway signs bank orders with RSA-CRT and keeps a 'debug' signing route it was never supposed to ship. That route blinds what it signs and, occasionally, lies about one of its two internal halves — rarely, and in either half. A second route leaks, byte by byte, a live nonce the vault order must carry, and the verifier now also demands the right role and a fresh timestamp. Two signatures are no longer enough on their own.\n\nSPECIAL OFFLINE HINT — CREW FITNESS CHECK\n\nVisit the organizer desk to unlock an optional hint. One willing team representative can complete 10 push-ups, or choose an equivalent non-physical logic task. The organizer will provide the hint privately. This activity is optional, supervised and compliant with college rules — there is no pressure, humiliation or compulsory physical activity.\n\n## Objective\nRecover the signing key from the blinded, faulty debug route, satisfy the nonce and freshness gates, forge an admin order, and unlock the vault. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `bank_gateway.py`\n- `guest.token`\n- `AUDIT_BRIEF.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{rs4_crt_f4ult_l3g4l_r4gg1ng}",
       "hints": [
-        "The debug route is not constant. Collect signatures of one fixed message until one of them disagrees with itself.",
-        "A faulty CRT half still agrees with the truth modulo one prime factor. The difference between a bad signature and the message shares a factor with the public modulus.",
-        "Once you own the key, sign what the vault actually wants — and note that the verifier offers a second, weaker confirmation."
+        "The debug route blinds what it signs; undo the blinding before any faulty half becomes visible. It also faults rarely, and in either half.",
+        "The order must carry a nonce that only the second, timing-based route will reveal, and it changes every process.",
+        "A correctly-signed order under the wrong role — or with a stale/wrong nonce — is still refused. The brief's parameters are bait."
       ],
       "files": [
         "bank_gateway.py",
@@ -311,7 +311,7 @@
         "AUDIT_BRIEF.txt"
       ],
       "directory": "challenges/HARD/H04",
-      "solution_outline": "Call sign_debug on a fixed message to obtain one correct and one faulty signature; p = gcd(bad^e - m mod n, n); q = n//p; d = inv(e,(p-1)(q-1)); sign ADMIN_MESSAGE; submit the token; the gateway returns the flag held in the FTA_H04_FLAG environment variable."
+      "solution_outline": "Call sign_debug on a fixed message to collect a correct and a faulty signature; un-blind each (sig_blind * r^-1 mod n) first. Faults land in p or q, so gcd(bad^e - m mod n, n) may return either prime — accept both and check p*q == n. Recover d, derive the live audit nonce one byte at a time via the verify_debug timing oracle, assemble ADMIN_MESSAGE with that nonce + a fresh timestamp, sign it as role 'admin', and submit to read the flag from the FTA_H04_FLAG environment variable. Decoys: a legacy signed token that verifies but is refused, and wrong leads in AUDIT_BRIEF.txt."
     },
     {
       "id": "H05",
@@ -319,14 +319,14 @@
       "level": "Hard",
       "category": "Multilayer cryptography",
       "location": "Final Getaway",
-      "topic": "3-party protocol break + AES-GCM",
+      "topic": "4-party agreement break + HKDF + nested AES",
       "points": 160,
-      "description": "# H05 · Last Ride Out\n\n**Level:** Hard · **Points:** 160 · **Category:** Multilayer cryptography  \n**Location:** Final Getaway · **Focus:** 3-party protocol break + AES-GCM\n\n## Mission briefing\nThe getaway's final message crossed a three-party key agreement. A captured transcript and the encrypted payload survive, and the protocol has one seat nobody ever checked. Sit in it, and the session key becomes yours to choose.\n\nCLASSIFIED OFFLINE INTEL\n\nCollect a confidential paper riddle from the organizer desk. Solve it to receive an additional hint for this mission.\n\n## Objective\nParse the transcript, find the unchecked contribution, bias the session key, and decrypt the payload. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `intercept.bin`\n- `final_payload.enc`\n- `ESCAPE_PROTOCOL.md`\n- `FORMAT_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
+      "description": "# H05 · Last Ride Out\n\n**Level:** Hard · **Points:** 160 · **Category:** Multilayer cryptography  \n**Location:** Final Getaway · **Focus:** 4-party agreement break + HKDF + nested AES\n\n## Mission briefing\nThe getaway's final message crossed a four-party key agreement. A captured transcript and the encrypted payload survive, and two of the four seats were never checked — read the framing and you will see which contributions are bound and which are taken on faith and re-advertised. The shared secret is not a neat sum but a weighted product, so sitting in an unchecked seat means solving for a value, not merely choosing one. The payload is nested twice, and some of the confirmations are decoys.\n\nCLASSIFIED OFFLINE INTEL\n\nCollect a confidential paper riddle from the organizer desk. Solve it to receive an additional hint for this mission.\n\n## Objective\nParse the transcript, identify the unauthenticated seats, steer the weighted session key, and decrypt the nested payload. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.\n\n## Evidence files\n- `intercept.bin`\n- `final_payload.enc`\n- `ESCAPE_PROTOCOL.md`\n- `FORMAT_SPEC.txt`\n\n## Scope and safety\nWork only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.\n\nHints are unlockable on the event platform; they are not required to solve the mission.\n",
       "flag": "FTA{mult1_p4rty_3sc4p3_pr0t0c0l}",
       "hints": [
-        "The transcript is TLV-framed. FORMAT_SPEC.txt tells you the shape of the frames — not what each type means; you will have to work that out.",
-        "Three parties contribute. Two are bound to the transcript; one is taken on faith and never verified.",
-        "If you can choose that unverified contribution, you can steer the shared key to a value of your own — then the payload opens."
+        "More than three voices are on the line. Read the framing: some contributions carry a binding tag and some do not — the unbound ones are trusted.",
+        "The session secret is a weighted product of the contributions, not a sum; steering it means solving for a share value rather than picking one.",
+        "There are decoy key-confirmations. The real one sits between them, and the payload is nested twice."
       ],
       "files": [
         "intercept.bin",
@@ -335,7 +335,7 @@
         "FORMAT_SPEC.txt"
       ],
       "directory": "challenges/HARD/H05",
-      "solution_outline": "Parse the TLV transcript; identify the three parties; recognise that party C's key material is accepted unauthenticated; substitute an attacker-known C share so the effective session key equals a known value; AES-GCM decrypt final_payload.enc using the prepended 96-bit nonce."
+      "solution_outline": "Parse the TLV transcript: shares A/B are bound (32B element + 16B tag = 48B) while C/D are reduced (bare 32B) and re-advertised. The agreement value is Y = XA^5 * XB^11 * XC^13 * XD^17 mod p; the key is K = HKDF(salt, Y, info||sid). Choose an attacker-known target and solve for the injected C share XC = (Y* * R^-1)^(13^-1 mod (p-1)). Confirm against record 0x0020 (0x0021/0x0022 are decoys), then AES-256-GCM decrypt final_payload.enc and finally AES-256-CBC the inner blob."
     }
   ]
 }

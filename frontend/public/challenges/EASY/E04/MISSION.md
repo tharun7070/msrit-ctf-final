@@ -1,13 +1,13 @@
 # E04 · Del Perro Camera Roll
 
 **Level:** Easy · **Points:** 50 · **Category:** Steganography  
-**Location:** Del Perro Pier · **Focus:** PNG LSB (column-major 2-bit) + UTF-7
+**Location:** Del Perro Pier · **Focus:** Gated bit-plane stego + geometry-keyed mask
 
 ## Mission briefing
-Del Perro's pier camera caught nothing suspicious, but the file is heavier than its picture deserves. A payload rides in the low bits of its colour channels, laid out in an order no stego tool expects, wrapped in a text encoding from a forgotten decade.
+Del Perro's pier camera caught nothing suspicious, but the file is heavier than its picture deserves. The payload does not ride in every pixel and not in the lowest plane — only certain 'blessed' pixels carry it, and a blanket low-bit sweep returns bait. What you finally extract is masked with a key built from the image's own geometry plus a logged salt, and then wrapped twice, in a decompressor and a text encoding from a forgotten decade.
 
 ## Objective
-Extract the hidden message from the PNG and decode it. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
+Extract the hidden message and reverse every layer, ignoring the traps placed for the obvious tool. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
 - `camera_roll.png`

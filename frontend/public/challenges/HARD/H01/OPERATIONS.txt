@@ -4,14 +4,26 @@ installation : Fort Zancudo, Hangar 13 perimeter
 station      : access control station "ZANCUDO DEADBOLT"
 platform     : native Linux x86-64 service binary  (zancudo_gate)
 
-The station admits a single operator passphrase and is driven as:
+Interface
+---------
+The station admits a single operator passphrase as its one positional
+argument and is driven exactly as:
 
     ./zancudo_gate <passphrase>
 
+Exit status
+-----------
+  0  passphrase accepted (the station announces release)
+  1  passphrase rejected (the deadbolt holds)
+  2  malformed invocation (no passphrase supplied)
+  any other non-zero value still means "no release"
+
 Field notes
 -----------
-* The station reports its own health before it accepts anything. If it refuses
-  to talk, you are interrogating it the wrong way.
-* Everything it needs is stored on-board; nothing is fetched at run time.
-* There is no recovery console and no maintenance back door. Locksmith, not
-  lockpick.
+* The station performs a self-check before it serves anybody. Interrogate it
+  the way it expects to be interrogated or it will not talk to you.
+* Everything it needs is on board; it fetches nothing over the network.
+* There is no recovery console and no maintenance back door.
+* If the station ever answers with a passphrase of its own, treat that answer
+  with suspicion: the station is under no obligation to tell you the truth
+  about why it said yes.

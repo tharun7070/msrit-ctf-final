@@ -4,19 +4,23 @@
 Holds a 1024-bit RSA key and issues / verifies short-lived bearer tokens.
 Import it as a module, or run it to expose the local HTTP endpoints:
 
-    GET  /pubkey      -> {n, e, bits}
-    POST /sign_debug  -> {"message": "...", "seed": <int>?} -> {signature, fault, half}
-    POST /verify      -> {"token": {...}}                  -> {ok}
-    POST /submit      -> {"token": {...}}                  -> {flag} | {error}
-    GET  /guest       -> a freshly issued guest token
+    GET  /pubkey       -> {n, e, bits}
+    POST /sign_debug   -> {"message": "...", "seed": <int>?} -> {signature, blind, fault, half}
+    POST /verify_debug -> {"candidate": "<hex>"}            -> {match}
+    POST /verify       -> {"token": {...}}                  -> {ok}
+    POST /submit       -> {"token": {...}}                  -> {flag} | {error}
+    GET  /guest        -> a freshly issued guest token
 
 A token is a JSON object:  {"role": "...", "msg": "...", "sig": "<hex>"}.
+An admin order additionally carries {"nonce": "<hex>", "ts": <int>}.
 """
 import base64
 import json
+import math
 import os
 import random
 import secrets
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 N = 118865252427956305283327846975934473994270521522722245747390812674457890107233825953528809866006261830016586023032651486335162331525774667502009666733291850189465477298662339206176707808116681017185153458954182915918757410553466664933550967814606912227970525920542922783751873126477132138999917877768759105463
@@ -29,8 +33,15 @@ _MASK = b'MAZE_BANK_LOS_SANTOS_AUDIT_2026'
 
 GUEST_PREFIX = "REF:"
 GUEST_MESSAGE = "REF:guest:los_santos:view_only:4421"
-ADMIN_MESSAGE = "ACTION=VAULT_TRANSFER;ROLE=admin;SRC=MAZE_BANK;AMT=1000000;NONCE=LS2026"
-FAULT_RATE = 0.1
+ADMIN_MESSAGE = "ACTION=VAULT_TRANSFER;ROLE=admin;SRC=MAZE_BANK;AMT=1000000;NONCE=__NONCE__"
+FAULT_RATE = 0.03
+
+GUARD_LEN = 6
+FRESH_WINDOW = 300
+
+# Live per-process audit nonce.  Re-rolled on every boot and never written to
+# disk.  submit() refuses any order that does not carry it.
+_GUARD = secrets.token_bytes(GUARD_LEN)
 
 
 def _reveal():
@@ -74,25 +85,38 @@ def _sign_with_one_half_broken(m, half, rnd):
 
 
 def sign_debug(message, seed=None):
-    """Leftover debug route: signs reference (guest) traffic.
+    """Leftover debug route: signs blinded reference (guest) traffic.
 
-    Roughly FAULT_RATE of requests come back with exactly one of the two
-    half-results computed wrong.  Given a seed the outcome is deterministic.
+    The request is first blinded with a per-call factor r: the gateway signs
+    (m * r^e) so the value handed back is NOT a direct signature of m.  The
+    blinding factor is returned alongside so the caller can un-blind.  Roughly
+    FAULT_RATE of requests come back with exactly one of the two half-results
+    computed wrong (either half).  Given a seed the outcome is deterministic.
     """
     msg = message.encode() if isinstance(message, str) else bytes(message)
     if not msg.startswith(GUEST_PREFIX.encode()):
         raise PermissionError("sign_debug serves reference traffic only")
-    m = int.from_bytes(msg, "big")
+    m = int.from_bytes(msg, "big") % N
     rnd = random.Random(seed) if seed is not None else random.Random(secrets.randbits(64))
-    if rnd.random() < FAULT_RATE:
+    r = rnd.randrange(2, N - 1)
+    while math.gcd(r, N) != 1:
+        r = rnd.randrange(2, N - 1)
+    blinded = (m * pow(r, E, N)) % N
+    fault = rnd.random() < FAULT_RATE
+    half = None
+    if fault:
         half = rnd.choice(("Sp", "Sq"))
         for _ in range(16):
-            sig = _sign_with_one_half_broken(m, half, rnd)
-            if sig != _sign(m):
-                return {"message": msg.decode("utf-8", "replace"),
-                        "signature": format(sig, "x"), "fault": True, "half": half}
+            sig = _sign_with_one_half_broken(blinded, half, rnd)
+            if sig != _sign(blinded):
+                break
+        else:
+            fault = False
+    if not fault:
+        sig = _sign(blinded)
     return {"message": msg.decode("utf-8", "replace"),
-            "signature": format(_sign(m), "x"), "fault": False, "half": None}
+            "signature": format(sig, "x"), "blind": format(r, "x"),
+            "fault": fault, "half": half}
 
 
 def verify(token):
@@ -119,9 +143,42 @@ def verify(token):
     return True
 
 
+def verify_debug(candidate):
+    """Quiet debug verifier for the live audit nonce.
+
+    Compares a candidate nonce (hex string or bytes) against the live one and
+    reports how many LEADING bytes matched before it stopped.  Deliberately
+    early-exit, so rather than answering yes/no it leaks the nonce one byte at
+    a time.
+    """
+    try:
+        cand = bytes.fromhex(candidate) if isinstance(candidate, str) else bytes(candidate)
+    except (TypeError, ValueError):
+        return {"match": 0}
+    matched = 0
+    for i in range(min(GUARD_LEN, len(cand))):
+        if cand[i] != _GUARD[i]:
+            break
+        matched += 1
+    return {"match": matched}
+
+
+def _nonce_hex():
+    return _GUARD.hex()
+
+
+def _admin_order():
+    return ADMIN_MESSAGE.replace("__NONCE__", _nonce_hex())
+
+
 def issue_guest_token():
     m = int.from_bytes(GUEST_MESSAGE.encode(), "big")
     return {"role": "guest", "msg": GUEST_MESSAGE, "sig": format(_sign(m), "x")}
+
+
+# A stale legacy order pinned into the build.  It verifies (it really is signed
+# by the key), but submit() refuses it: wrong nonce, wrong message, old stamp.
+DECOY_TOKEN = {'role': 'admin', 'msg': 'ACTION=VAULT_TRANSFER;ROLE=admin;SRC=MAZE_BANK;AMT=1000000;NONCE=LS2026', 'sig': '70c63569444d46742a0f9ad6d2c4ca847c116640816b23f2f8dfaac3b784ff1975219636be610056e486c53f1558f3da6cd2efca2bb8e3fb199bda59740851eebdf995bba45d6f0c1771d04ad8fd9c97968323a9e2931fab81e18ca084b606b6e91000a1cf3d16c9f9ced645fbf638efa6e03e75643f8d7f5f0202c128673a20', 'nonce': 'LS2026', 'ts': 0}
 
 
 def submit(token):
@@ -129,7 +186,12 @@ def submit(token):
         return None
     if token.get("role") != "admin":
         return None
-    if token.get("msg") != ADMIN_MESSAGE:
+    if token.get("nonce") != _nonce_hex():
+        return None
+    ts = token.get("ts")
+    if not isinstance(ts, int) or abs(int(time.time()) - ts) > FRESH_WINDOW:
+        return None
+    if token.get("msg") != _admin_order():
         return None
     if not verify(token):
         return None
@@ -169,6 +231,8 @@ def _serve(host="127.0.0.1", port=8420):
                     self._json(200, out)
                 except Exception as exc:  # noqa: BLE001
                     self._json(403, {"error": str(exc)})
+            elif route == "/verify_debug":
+                self._json(200, verify_debug(payload.get("candidate", "")))
             elif route == "/verify":
                 self._json(200, {"ok": verify(payload.get("token", {}))})
             elif route == "/submit":

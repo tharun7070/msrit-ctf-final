@@ -3,28 +3,47 @@
 
 Produces `airport_traffic.pcap`: a classic little-endian pcap capture of real
 raw TCP/IPv4 packets (real IPv4/TCP checksums via lib_fta.build_tcp_packet).
-The TCP payloads carry a custom binary frame:
+The TCP payloads carry a NESTED two-layer binary protocol.  Many independent
+layers must be inverted, in order, to recover the flag.
 
-    frame = MAGIC(0xDEAD1A70, u32 LE) | type(u16 LE) | length(u16 LE)
-            | payload(length bytes) | CRC32(u32 LE)
-    CRC32 = zlib.crc32(MAGIC|type|length|payload) & 0xFFFFFFFF
+OUTER layer — the "tower seal frame" (all fields little-endian):
 
-Only frames whose CRC32 is *valid* AND whose type == 0x0A carry flag fragments.
-For those frames the payload layout is:
+    off  0  OUTER_MAGIC = 0xDEAD1A70 (u32 LE)
+    off  4  otype   (u16 LE)     -- 0x0A = telemetry broadcast
+    off  6  olen    (u16 LE)
+    off  8  oseq    (u32 LE)     -- RED-HERRING ordering field
+    off 12  route   (u16 LE)     -- the "hole": NOT covered by the seal
+    off 14  payload (olen bytes) -- contains ONE nested inner frame
+    tail    seal    (u32 LE)
 
-    payload[0:6]   opaque channel/uptime header (free bytes)
-    payload[6:10]  fragment sequence number (u32 LE)
-    payload[10:]   fragment data bytes XOR (frame's 4 CRC32 bytes, repeated)
+    seal = CRC32( frame[0:12] || payload )   # route bytes [12:14] skipped
 
-The stored data is XOR-masked with the frame's own CRC32 bytes, and the CRC32 is
-computed over the whole frame body *including* that masked data.  That is a fixed
-point (crc depends on the data, the data depends on crc).  We solve it exactly by
-linear algebra over GF(2): zlib.crc32 is affine in its input bits, and the XOR
-mask is linear in the crc bits, so `crc = g(crc)` becomes a solvable linear
-system in 80 unknowns (6 free header bytes + 32 crc bits).
+The seal is a CRC32 over a SUBSET of the frame: everything up to oseq plus the
+payload, but NOT the 2-byte `route` field sitting between them.  A naive
+whole-frame CRC32 (over frame[0:14] || payload) therefore FAILS on genuine
+frames, and frames sealed with that naive rule FAIL the genuine rule.
 
-Decoys: some type==0x0A frames with a corrupted CRC32, and some frames with a
-valid CRC32 but type != 0x0A.  Neither passes the gate.
+INNER layer — the "flight frame" (a DIFFERENT magic):
+
+    off  0  INNER_MAGIC = 0x1A70C0DE (u32 LE)
+    off  4  version (u8)
+    off  5  itype   (u8)         -- 0x5C = flag fragment
+    off  6  iseq    (u32 LE)     -- the REAL ordering field
+    off 10  ilen    (u16 LE)
+    off 12  masked fragment bytes -- data XOR keystream(iseq)
+
+The fragment bytes are masked with a keystream derived from the INNER sequence
+number (a Numerical-Recipes LCG), NOT from any CRC bytes, so the old
+"XOR with the CRC bytes" trick yields garbage.  Fragments must be ordered by
+the INNER sequence; the OUTER oseq is a decoy.
+
+Decoys stacked in:
+  * a fully-valid-looking group whose frames pass a NAIVE whole-frame CRC32 but
+    fail the genuine (subset) seal — they reassemble to a plausible WRONG
+    FTA{...} flag if you get the CRC scope wrong;
+  * frames with corrupted seals;
+  * frames with a genuine seal but a wrong OUTER type;
+  * frames with a genuine seal but a wrong INNER type / version / magic.
 """
 import random, struct, sys, zlib
 from pathlib import Path
@@ -33,124 +52,181 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_fta as L
 
 FLAG = L.FLAGS["M02"]
-MAGIC = L.FRAME_MAGIC
-TYPE_DATA = 0x0A
-DECOY_TYPES = [0x01, 0x02, 0x0B, 0x0C, 0x0D]
+FAKE_FLAG = "FTA{n41v3_crc32_gh0st_p1l0t_sp00f}"
+
+OUTER_MAGIC = L.FRAME_MAGIC               # 0xDEAD1A70
+INNER_MAGIC = 0x1A70C0DE                  # must differ from OUTER_MAGIC
+OUTER_TYPE_DATA = 0x0A
+OUTER_TYPE_DECOYS = [0x0B, 0x0C, 0x0D, 0x01, 0x0E]
+INNER_VER = 1
+INNER_TYPE_FRAG = 0x5C
+INNER_TYPE_OTHER = 0x11
+INNER_MAGIC_BAD = 0x0BADF00D
+
+OUTER_HDR = 14          # bytes before the outer payload (incl. route)
+ROUTE_OFF = 12          # 2-byte field excluded from the seal
 
 
 # ---------------------------------------------------------------------------
-# GF(2) linear solver (Gaussian elimination / RREF)
+# per-sequence keystream (Numerical-Recipes LCG) + masking
 # ---------------------------------------------------------------------------
-def gf2_solve(cols, target, n):
-    """Find x (n-bit int) with XOR_{i: x_i=1} cols[i] == target.
-    Returns an n-bit int or None if the system is inconsistent."""
-    m = 32
-    row_m = []
-    row_r = []
-    for r in range(m):
-        mask = 0
-        for i in range(n):
-            if (cols[i] >> r) & 1:
-                mask |= (1 << i)
-        row_m.append(mask)
-        row_r.append((target >> r) & 1)
-
-    pivots = {}
-    pr = 0
-    for col in range(n):
-        sel = -1
-        for i in range(pr, m):
-            if (row_m[i] >> col) & 1:
-                sel = i
-                break
-        if sel < 0:
-            continue
-        row_m[pr], row_m[sel] = row_m[sel], row_m[pr]
-        row_r[pr], row_r[sel] = row_r[sel], row_r[pr]
-        for i in range(m):
-            if i != pr and ((row_m[i] >> col) & 1):
-                row_m[i] ^= row_m[pr]
-                row_r[i] ^= row_r[pr]
-        pivots[col] = pr
-        pr += 1
-        if pr == m:
-            break
-
-    for i in range(m):
-        if row_m[i] == 0 and row_r[i] == 1:
-            return None
-    x = 0
-    for col, ri in pivots.items():
-        if row_r[ri]:
-            x |= (1 << col)
-    return x
+def keystream(seq: int, n: int) -> bytes:
+    state = (seq ^ 0xA5A5A5A5) & 0xFFFFFFFF
+    out = bytearray(n)
+    for i in range(n):
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        out[i] = (state >> 24) & 0xFF
+    return bytes(out)
 
 
-def _mask_of(crc, length):
-    """The 4 crc bytes (LE) repeated to `length` bytes."""
-    cb = (crc & 0xFFFFFFFF).to_bytes(4, "little")
-    return (cb * (length // 4 + 1))[:length]
+def apply_mask(data: bytes, seq: int) -> bytes:
+    return bytes(a ^ b for a, b in zip(data, keystream(seq, len(data))))
 
 
-def build_data_frame(chunk: bytes, seq: int) -> bytes:
-    """Build a genuine type==0x0A frame carrying `chunk` at sequence `seq`,
-    solving the crc/data XOR fixed point exactly."""
-    length = len(chunk)
-    head = struct.pack("<IHH", MAGIC, TYPE_DATA, 10 + length)
-    seqb = struct.pack("<I", seq & 0xFFFFFFFF)
-    zero6 = b"\x00" * 6
-
-    def g(prefix6, crc):
-        mask = _mask_of(crc, length)
-        stored = bytes(a ^ b for a, b in zip(chunk, mask))
-        body = head + prefix6 + seqb + stored
-        return crc ^ (zlib.crc32(body) & 0xFFFFFFFF)
-
-    t0 = g(zero6, 0)
-    cols = []
-    for p in range(48):  # free header bits
-        pb = bytearray(zero6)
-        pb[p // 8] ^= 1 << (p % 8)
-        cols.append(g(bytes(pb), 0) ^ t0)
-    for j in range(32):  # crc bits
-        cols.append(g(zero6, 1 << j) ^ t0)
-
-    x = gf2_solve(cols, t0, 80)
-    assert x is not None, "fixed-point system inconsistent"
-    prefix6 = bytearray(zero6)
-    for p in range(48):
-        if (x >> p) & 1:
-            prefix6[p // 8] ^= 1 << (p % 8)
-    crc = 0
-    for j in range(32):
-        if (x >> (48 + j)) & 1:
-            crc |= 1 << j
-    prefix6 = bytes(prefix6)
-    assert g(prefix6, crc) == 0, "fixed point not satisfied"
-
-    stored = bytes(a ^ b for a, b in zip(chunk, _mask_of(crc, length)))
-    payload = prefix6 + seqb + stored
-    body = head + payload
-    assert (zlib.crc32(body) & 0xFFFFFFFF) == crc
-    return body + struct.pack("<I", crc)
+# ---------------------------------------------------------------------------
+# frame builders
+# ---------------------------------------------------------------------------
+def outer_seal(header12: bytes, payload: bytes) -> int:
+    """Genuine seal: CRC32 over header[0:12] || payload (route bytes skipped)."""
+    crc = zlib.crc32(header12)
+    crc = zlib.crc32(payload, crc)
+    return crc & 0xFFFFFFFF
 
 
-def _rand_payload(rnd, n):
-    return bytes(rnd.randrange(256) for _ in range(n))
+def build_inner(iseq, data, itype=INNER_TYPE_FRAG, ver=INNER_VER, magic=INNER_MAGIC):
+    masked = apply_mask(data, iseq)
+    return struct.pack("<IBBIH", magic, ver, itype, iseq, len(masked)) + masked
 
 
-def build_decoy_crc_frame(rnd):
-    """type==0x0A but a corrupted CRC32 -> must be rejected."""
-    payload = _rand_payload(rnd, rnd.randint(12, 40))
-    return L.frame(TYPE_DATA, payload, corrupt_crc=True)
+def build_outer(payload, otype=OUTER_TYPE_DATA, oseq=0, route=0x1357,
+                seal_mode="real", seal_value=None):
+    olen = len(payload) & 0xFFFF
+    header = struct.pack("<IHH", OUTER_MAGIC, otype, olen) + struct.pack("<I", oseq)
+    body = header + struct.pack("<H", route) + payload      # full frame, no seal
+    if seal_value is not None:
+        seal = seal_value & 0xFFFFFFFF
+    elif seal_mode == "naive":
+        seal = zlib.crc32(body) & 0xFFFFFFFF                 # WRONG scope
+    else:                                                    # "real"
+        seal = outer_seal(header, payload)
+    return body + struct.pack("<I", seal)
 
 
-def build_wrong_type_frame(rnd):
-    """valid CRC32 but type != 0x0A -> must be rejected."""
-    payload = _rand_payload(rnd, rnd.randint(8, 48))
-    return L.frame(rnd.choice(DECOY_TYPES), payload)
+def _outer_parts(fr: bytes):
+    """Return (header12, payload, real_seal, naive_seal) for an outer frame."""
+    olen = struct.unpack("<H", fr[6:8])[0]
+    header = fr[0:12]
+    payload = fr[14:14 + olen]
+    body = fr[:-4]
+    return header, payload, outer_seal(header, payload), zlib.crc32(body) & 0xFFFFFFFF
 
 
+def split_flag(flag, n=6):
+    base, rem = divmod(len(flag), n)
+    out, pos = [], 0
+    for i in range(n):
+        sz = base + (1 if i < rem else 0)
+        out.append(flag[pos:pos + sz])
+        pos += sz
+    return out
+
+
+# ---------------------------------------------------------------------------
+# genuine fragments
+# ---------------------------------------------------------------------------
+def genuine_fragment_frames(rnd):
+    chunks = split_flag(FLAG)
+    assert "".join(chunks) == FLAG
+    base = 0x2A00
+    frames = []
+    for k, ch in enumerate(chunks):
+        iseq = base + k * 0x11
+        oseq = rnd.randint(0, 0xFFFFFFFF)        # red herring
+        route = rnd.randint(1, 0xFFFF)           # excluded-from-seal field
+        inner = build_inner(iseq, ch.encode("ascii"))
+        fr = build_outer(inner, OUTER_TYPE_DATA, oseq, route, "real")
+        _h, _p, real, naive = _outer_parts(fr)
+        # genuine frames: real seal valid, naive whole-frame CRC must differ
+        assert real == struct.unpack("<I", fr[-4:])[0]
+        assert naive != real, "route bytes failed to perturb CRC"
+        frames.append(fr)
+    return frames
+
+
+# ---------------------------------------------------------------------------
+# decoys
+# ---------------------------------------------------------------------------
+def naive_seal_frames(rnd):
+    """Fully-valid-looking group that reassembles to a plausible WRONG flag.
+    Sealed with the NAIVE whole-frame CRC32, so a solver using the wrong CRC
+    scope ACCEPTS them; the genuine subset rule REJECTS them."""
+    chunks = split_flag(FAKE_FLAG)
+    assert "".join(chunks) == FAKE_FLAG
+    base = 0x7100
+    frames = []
+    for k, ch in enumerate(chunks):
+        iseq = base + k * 0x11
+        oseq = rnd.randint(0, 0xFFFFFFFF)
+        route = rnd.randint(1, 0xFFFF)
+        inner = build_inner(iseq, ch.encode("ascii"))
+        fr = build_outer(inner, OUTER_TYPE_DATA, oseq, route, "naive")
+        _h, _p, real, naive = _outer_parts(fr)
+        assert naive == struct.unpack("<I", fr[-4:])[0]
+        assert real != naive, "naive group would pass the genuine rule"
+        frames.append(fr)
+    return frames
+
+
+def bad_seal_frames(rnd):
+    """Genuine magic/type but a corrupted seal -> rejected."""
+    out = []
+    for i in range(4):
+        iseq = 0x9000 + i * 0x11
+        data = bytes(rnd.randrange(65, 91) for _ in range(rnd.randint(3, 9)))
+        inner = build_inner(iseq, data)
+        fr = build_outer(inner, OUTER_TYPE_DATA, rnd.randint(0, 0xFFFFFFFF),
+                         rnd.randint(1, 0xFFFF), "real")
+        seal = struct.unpack("<I", fr[-4:])[0]
+        seal ^= 0x00FF0000 if (i & 1) else 0x0000FFFF
+        out.append(fr[:-4] + struct.pack("<I", seal & 0xFFFFFFFF))
+    return out
+
+
+def wrong_outer_type_frames(rnd):
+    """Genuine seal + inner fragment, but a wrong OUTER type -> rejected."""
+    out = []
+    for i in range(3):
+        iseq = 0x9A00 + i * 0x11
+        data = bytes(rnd.randrange(97, 123) for _ in range(5))
+        inner = build_inner(iseq, data)
+        fr = build_outer(inner, rnd.choice(OUTER_TYPE_DECOYS),
+                         rnd.randint(0, 0xFFFFFFFF), rnd.randint(1, 0xFFFF), "real")
+        out.append(fr)
+    return out
+
+
+def wrong_inner_frames(rnd):
+    """Genuine outer frame + seal, but a wrong INNER type / version / magic."""
+    out = []
+    for i in range(2):
+        iseq = 0x9B00 + i * 0x11
+        inner = build_inner(iseq, bytes(rnd.randrange(48, 58) for _ in range(4)),
+                            itype=INNER_TYPE_OTHER)
+        fr = build_outer(inner, OUTER_TYPE_DATA, rnd.randint(0, 0xFFFFFFFF),
+                         rnd.randint(1, 0xFFFF), "real")
+        out.append(fr)
+    # one with a completely foreign inner magic
+    inner = struct.pack("<IBBIH", INNER_MAGIC_BAD, 1, INNER_TYPE_FRAG, 0x9B10, 4) \
+        + b"\x01\x02\x03\x04"
+    fr = build_outer(inner, OUTER_TYPE_DATA, rnd.randint(0, 0xFFFFFFFF),
+                     rnd.randint(1, 0xFFFF), "real")
+    out.append(fr)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# noise + TCP streams
+# ---------------------------------------------------------------------------
 def noise_line(rnd):
     return ("TELEMETRY NODE=TOWER-{} ALT={:05d} HDG={:03d} SPD={:03d} "
             "SEQ={:05d} STATUS={}\n").format(
@@ -180,63 +256,42 @@ def main():
     out = L.out_dir("M02")
     rnd = random.Random(0x1A70C7)  # deterministic
 
-    # ---- split the flag into fragments -------------------------------------
-    sizes = [6, 6, 6, 5, 5, 5]
-    chunks, i = [], 0
-    for s in sizes:
-        chunks.append(FLAG[i:i + s])
-        i += s
-    assert "".join(chunks) == FLAG
-
-    seq_base = 4096
-    frag_frames = []
-    frag_meta = []
-    for k, ch in enumerate(chunks):
-        seq = seq_base + k
-        fr = build_data_frame(ch.encode("ascii"), seq)
-        frag_frames.append(fr)
-        frag_meta.append((seq, ch))
-
-    # ---- decoys -------------------------------------------------------------
-    decoys = []
-    for _ in range(3):
-        decoys.append(build_decoy_crc_frame(rnd))
-    for _ in range(3):
-        decoys.append(build_wrong_type_frame(rnd))
-    decoys.append(L.frame(rnd.choice(DECOY_TYPES), _rand_payload(rnd, 20),
-                          corrupt_crc=True))
+    real_frames = genuine_fragment_frames(rnd)
+    fake_frames = naive_seal_frames(rnd)
+    bad = bad_seal_frames(rnd)
+    wrong_ot = wrong_outer_type_frames(rnd)
+    wrong_in = wrong_inner_frames(rnd)
 
     # ---- TCP streams (airport tower theme) ---------------------------------
     streams = [
         ("10.20.30.2",  "10.20.30.10", 4001, 51000),  # tower uplink (flag)
         ("10.20.30.3",  "10.20.30.11", 4002, 51001),  # approach feed (decoys)
-        ("10.20.30.7",  "10.20.30.2",  9000, 41000),  # radar sweep (noise)
+        ("10.20.30.7",  "10.20.30.2",  9000, 41000),  # radar sweep (mixed)
         ("10.20.30.20", "10.20.30.3",  8080, 52000),  # ground ops (noise)
         ("10.20.30.11", "10.20.30.2",  5001, 33000),  # baggage scanners
         ("10.20.30.10", "10.20.30.7",  9100, 60000),  # refuel telemetry
     ]
 
-    # decoys[0..2] = type 0x0A w/ corrupt CRC ; decoys[3..5] = valid CRC, bad
-    # type ; decoys[6] = corrupt CRC + bad type.
-
-    # stream 0: fragment frames shuffled among noise, plus one combined payload
+    # stream 0: genuine fragments shuffled among noise, plus one TCP payload
+    # carrying TWO frames (must walk the payload frame by frame)
     s0 = [noise_line(rnd) for _ in range(9)]
-    shuffled_frags = list(frag_frames)
-    rnd.shuffle(shuffled_frags)          # out of sequence order -> must sort
-    for fr in shuffled_frags:
-        s0.append(fr)
-    # one TCP payload carrying two frames (both decoys) -> must walk frames
-    s0.append(decoys[6] + decoys[0])
+    shuffled = list(real_frames)
+    rnd.shuffle(shuffled)               # out of order -> must sort by inner seq
+    s0 += shuffled
+    s0.append(bad[0] + wrong_ot[0])
     rnd.shuffle(s0)
 
-    # stream 1: decoy frames among noise, incl. a two-frame payload
+    # stream 1: the naive-seal wrong-flag group (shuffled) + bad seals + noise
     s1 = [noise_line(rnd) for _ in range(10)]
-    s1 += [decoys[1] + decoys[2], decoys[3], decoys[4]]
+    fake = list(fake_frames)
+    rnd.shuffle(fake)
+    s1 += fake
+    s1 += [bad[1] + bad[2], bad[3]]
     rnd.shuffle(s1)
 
-    # stream 2: mostly noise + one decoy
-    s2 = [noise_line(rnd) for _ in range(14)]
-    s2 += [decoys[5]]
+    # stream 2: wrong outer type + wrong inner type/magic + noise
+    s2 = [noise_line(rnd) for _ in range(12)]
+    s2 += [wrong_ot[1], wrong_ot[2], wrong_in[0], wrong_in[1], wrong_in[2]]
     rnd.shuffle(s2)
 
     s3 = [noise_line(rnd) for _ in range(21)]
@@ -260,18 +315,24 @@ def main():
         "\n"
         "This file is a raw binary telemetry capture pulled straight off the\n"
         "tower wire: the airport keeps shipping its own little packets inside\n"
-        "the ordinary network traffic. Nobody has given us the wire format.\n"
+        "the ordinary network traffic, and those packets are wrapped again.\n"
+        "Nobody has given us the wire format.\n"
         "\n"
         "Not everything on the wire is intact, and not everything that is\n"
-        "intact is worth reading. Trust the checksums. Read only what the\n"
-        "tower is actually broadcasting, in the order the tower sent it.\n"
+        "intact is worth reading. The seal is not the obvious one — trust the\n"
+        "tower's own rule, not the one you assume. Read only what the tower is\n"
+        "actually broadcasting, in the order the tower sent it.\n"
         "\n"
         "Deliverable: the flight callsign (the recovered flag).\n"
     )
     (out / "MANIFEST.txt").write_text(manifest, encoding="utf-8")
 
+    n_frames = (len(real_frames) + len(fake_frames) + len(bad)
+                + len(wrong_ot) + len(wrong_in))
     print(f"[M02] wrote {len(packets)} packets -> {out/'airport_traffic.pcap'}")
-    print(f"[M02] fragments = {len(frag_frames)}  decoys = {len(decoys)}")
+    print(f"[M02] genuine fragments = {len(real_frames)}  total frames = {n_frames}")
+    print(f"[M02] decoys: naive_seal={len(fake_frames)} bad_seal={len(bad)} "
+          f"wrong_outer_type={len(wrong_ot)} wrong_inner={len(wrong_in)}")
     print(f"[M02] flag = {FLAG}")
 
 

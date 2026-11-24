@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""H04 - LEGAL RAGGING (RSA-CRT fault attack + timing oracle) generator.
+"""H04 - LEGAL RAGGING (hardened RSA-CRT fault attack + two-part oracle).
 
 Private organizer tooling. Builds the participant-facing artifact set:
 
@@ -7,9 +7,24 @@ Private organizer tooling. Builds the participant-facing artifact set:
     guest.token       - one valid guest credential (JSON + signature)
     AUDIT_BRIEF.txt    - the in-fiction discovery note
 
-The gateway embeds the RSA key material needed to *produce* signatures; the
-flag itself is never written here - the gateway reads it from the environment
-variable ``FTA_H04_FLAG`` at submit time (see SOLUTION.md).
+Hardening layers stacked into the gateway:
+  1. Blinded, low-rate signing oracle - sign_debug signs (m * r^e) and hands
+     back the blinding factor r, so the raw signature is not directly of m;
+     the solver must un-blind before the classic gcd fault attack works.
+  2. Faults may land in EITHER CRT half (p or q); gcd can return either prime
+     and the solver must handle both.
+  3. Two-part oracle - sign_debug plus a quiet verify_debug byte-oracle that
+     leaks the live per-process audit nonce one byte at a time.  That nonce is
+     one of the fields the vault order is assembled from.
+  4. Verifier hardening - role gate, nonce gate and a timestamp freshness
+     window.  A correctly signed order for the wrong role, or a stale order,
+     is refused.
+  5. Decoys - AUDIT_BRIEF suggests a wrong fault rate, a wrong fixed faulty
+     half and a wrong (legacy) NONCE; the gateway also pins a stale legacy
+     admin token that verifies but is rejected by submit().
+
+The flag itself is never written here - the gateway reads it from the
+environment variable ``FTA_H04_FLAG`` at submit time.
 """
 import base64
 import importlib.util
@@ -23,10 +38,17 @@ import lib_fta as L
 CID = "H04"
 SEED = 20260404
 BITS = 1024
-FAULT_RATE = 0.10
+FAULT_RATE = 0.03
 GUEST_PREFIX = "REF:"
 GUEST_MESSAGE = "REF:guest:los_santos:view_only:4421"
-ADMIN_MESSAGE = "ACTION=VAULT_TRANSFER;ROLE=admin;SRC=MAZE_BANK;AMT=1000000;NONCE=LS2026"
+
+# The vault order is assembled from several fields; the NONCE field is only
+# recoverable from the live gateway (placeholder filled at submit time).
+ADMIN_MESSAGE = "ACTION=VAULT_TRANSFER;ROLE=admin;SRC=MAZE_BANK;AMT=1000000;NONCE=__NONCE__"
+
+# A stale legacy order (pre-hardening).  Signed correctly, so it still passes
+# the generic verifier, but submit() refuses it - a decoy for lazy solvers.
+LEGACY_MESSAGE = "ACTION=VAULT_TRANSFER;ROLE=admin;SRC=MAZE_BANK;AMT=1000000;NONCE=LS2026"
 
 # Keystream used to obscure the private CRT parameters inside the artifact.
 KEY_MASK = b"MAZE_BANK_LOS_SANTOS_AUDIT_2026"
@@ -37,19 +59,23 @@ GATEWAY_TEMPLATE = r'''#!/usr/bin/env python3
 Holds a 1024-bit RSA key and issues / verifies short-lived bearer tokens.
 Import it as a module, or run it to expose the local HTTP endpoints:
 
-    GET  /pubkey      -> {n, e, bits}
-    POST /sign_debug  -> {"message": "...", "seed": <int>?} -> {signature, fault, half}
-    POST /verify      -> {"token": {...}}                  -> {ok}
-    POST /submit      -> {"token": {...}}                  -> {flag} | {error}
-    GET  /guest       -> a freshly issued guest token
+    GET  /pubkey       -> {n, e, bits}
+    POST /sign_debug   -> {"message": "...", "seed": <int>?} -> {signature, blind, fault, half}
+    POST /verify_debug -> {"candidate": "<hex>"}            -> {match}
+    POST /verify       -> {"token": {...}}                  -> {ok}
+    POST /submit       -> {"token": {...}}                  -> {flag} | {error}
+    GET  /guest        -> a freshly issued guest token
 
 A token is a JSON object:  {"role": "...", "msg": "...", "sig": "<hex>"}.
+An admin order additionally carries {"nonce": "<hex>", "ts": <int>}.
 """
 import base64
 import json
+import math
 import os
 import random
 import secrets
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 N = __N__
@@ -64,6 +90,13 @@ GUEST_PREFIX = "__GP__"
 GUEST_MESSAGE = "__GM__"
 ADMIN_MESSAGE = "__ADMIN__"
 FAULT_RATE = __FR__
+
+GUARD_LEN = 6
+FRESH_WINDOW = 300
+
+# Live per-process audit nonce.  Re-rolled on every boot and never written to
+# disk.  submit() refuses any order that does not carry it.
+_GUARD = secrets.token_bytes(GUARD_LEN)
 
 
 def _reveal():
@@ -107,25 +140,38 @@ def _sign_with_one_half_broken(m, half, rnd):
 
 
 def sign_debug(message, seed=None):
-    """Leftover debug route: signs reference (guest) traffic.
+    """Leftover debug route: signs blinded reference (guest) traffic.
 
-    Roughly FAULT_RATE of requests come back with exactly one of the two
-    half-results computed wrong.  Given a seed the outcome is deterministic.
+    The request is first blinded with a per-call factor r: the gateway signs
+    (m * r^e) so the value handed back is NOT a direct signature of m.  The
+    blinding factor is returned alongside so the caller can un-blind.  Roughly
+    FAULT_RATE of requests come back with exactly one of the two half-results
+    computed wrong (either half).  Given a seed the outcome is deterministic.
     """
     msg = message.encode() if isinstance(message, str) else bytes(message)
     if not msg.startswith(GUEST_PREFIX.encode()):
         raise PermissionError("sign_debug serves reference traffic only")
-    m = int.from_bytes(msg, "big")
+    m = int.from_bytes(msg, "big") % N
     rnd = random.Random(seed) if seed is not None else random.Random(secrets.randbits(64))
-    if rnd.random() < FAULT_RATE:
+    r = rnd.randrange(2, N - 1)
+    while math.gcd(r, N) != 1:
+        r = rnd.randrange(2, N - 1)
+    blinded = (m * pow(r, E, N)) % N
+    fault = rnd.random() < FAULT_RATE
+    half = None
+    if fault:
         half = rnd.choice(("Sp", "Sq"))
         for _ in range(16):
-            sig = _sign_with_one_half_broken(m, half, rnd)
-            if sig != _sign(m):
-                return {"message": msg.decode("utf-8", "replace"),
-                        "signature": format(sig, "x"), "fault": True, "half": half}
+            sig = _sign_with_one_half_broken(blinded, half, rnd)
+            if sig != _sign(blinded):
+                break
+        else:
+            fault = False
+    if not fault:
+        sig = _sign(blinded)
     return {"message": msg.decode("utf-8", "replace"),
-            "signature": format(_sign(m), "x"), "fault": False, "half": None}
+            "signature": format(sig, "x"), "blind": format(r, "x"),
+            "fault": fault, "half": half}
 
 
 def verify(token):
@@ -152,9 +198,42 @@ def verify(token):
     return True
 
 
+def verify_debug(candidate):
+    """Quiet debug verifier for the live audit nonce.
+
+    Compares a candidate nonce (hex string or bytes) against the live one and
+    reports how many LEADING bytes matched before it stopped.  Deliberately
+    early-exit, so rather than answering yes/no it leaks the nonce one byte at
+    a time.
+    """
+    try:
+        cand = bytes.fromhex(candidate) if isinstance(candidate, str) else bytes(candidate)
+    except (TypeError, ValueError):
+        return {"match": 0}
+    matched = 0
+    for i in range(min(GUARD_LEN, len(cand))):
+        if cand[i] != _GUARD[i]:
+            break
+        matched += 1
+    return {"match": matched}
+
+
+def _nonce_hex():
+    return _GUARD.hex()
+
+
+def _admin_order():
+    return ADMIN_MESSAGE.replace("__NONCE__", _nonce_hex())
+
+
 def issue_guest_token():
     m = int.from_bytes(GUEST_MESSAGE.encode(), "big")
     return {"role": "guest", "msg": GUEST_MESSAGE, "sig": format(_sign(m), "x")}
+
+
+# A stale legacy order pinned into the build.  It verifies (it really is signed
+# by the key), but submit() refuses it: wrong nonce, wrong message, old stamp.
+DECOY_TOKEN = __DECOY__
 
 
 def submit(token):
@@ -162,7 +241,12 @@ def submit(token):
         return None
     if token.get("role") != "admin":
         return None
-    if token.get("msg") != ADMIN_MESSAGE:
+    if token.get("nonce") != _nonce_hex():
+        return None
+    ts = token.get("ts")
+    if not isinstance(ts, int) or abs(int(time.time()) - ts) > FRESH_WINDOW:
+        return None
+    if token.get("msg") != _admin_order():
         return None
     if not verify(token):
         return None
@@ -202,6 +286,8 @@ def _serve(host="127.0.0.1", port=8420):
                     self._json(200, out)
                 except Exception as exc:  # noqa: BLE001
                     self._json(403, {"error": str(exc)})
+            elif route == "/verify_debug":
+                self._json(200, verify_debug(payload.get("candidate", "")))
             elif route == "/verify":
                 self._json(200, {"ok": verify(payload.get("token", {}))})
             elif route == "/submit":
@@ -227,6 +313,13 @@ def _obfuscate(p: int, q: int) -> str:
     return base64.b64encode(masked).decode("ascii")
 
 
+def _decoy_token(key: dict) -> dict:
+    m = int.from_bytes(LEGACY_MESSAGE.encode(), "big")
+    sig = pow(m, key["d"], key["n"])
+    return {"role": "admin", "msg": LEGACY_MESSAGE,
+            "sig": format(sig, "x"), "nonce": "LS2026", "ts": 0}
+
+
 def build_gateway_source(key: dict) -> str:
     src = GATEWAY_TEMPLATE
     src = src.replace("__N__", str(key["n"]))
@@ -237,6 +330,7 @@ def build_gateway_source(key: dict) -> str:
     src = src.replace("__GM__", GUEST_MESSAGE)
     src = src.replace("__ADMIN__", ADMIN_MESSAGE)
     src = src.replace("__FR__", repr(FAULT_RATE))
+    src = src.replace("__DECOY__", repr(_decoy_token(key)))
     return src
 
 
@@ -259,6 +353,12 @@ def main():
     assert gw.public_params() == (key["n"], key["e"]), "public params mismatch"
     assert (gw._P, gw._Q) == (key["p"], key["q"]), "keystore mismatch"
 
+    # The nonce oracle must be able to reveal the live guard, and a candidate
+    # whose first byte is provably wrong must leak nothing.
+    assert gw.verify_debug(gw._nonce_hex())["match"] == gw.GUARD_LEN, "nonce oracle broken"
+    wrong = bytes([gw._GUARD[0] ^ 0xFF]) + bytes(gw.GUARD_LEN - 1)
+    assert gw.verify_debug(wrong)["match"] == 0, "nonce oracle failed open"
+
     # Emit one valid guest credential.
     m = int.from_bytes(GUEST_MESSAGE.encode(), "big")
     sig = pow(m, key["d"], key["n"])
@@ -267,25 +367,41 @@ def main():
     assert gw.verify(guest) is True, "guest token must verify"
     (out / "guest.token").write_text(json.dumps(guest, indent=2) + "\n", encoding="utf-8")
 
-    # In-fiction discovery brief (no algorithm names, no spoilers).
+    # The decoy must verify yet be refused by submit().
+    assert gw.verify(gw.DECOY_TOKEN) is True, "decoy token should verify"
+    assert gw.submit(gw.DECOY_TOKEN) is None, "decoy token must be refused"
+
+    # In-fiction discovery brief (no algorithm names, includes deliberate decoys).
     (out / "AUDIT_BRIEF.txt").write_text(
         "MAZE BANK OF LOS SANTOS - SECURITY AUDIT BRIEF (case ref: H04)\n"
         "----------------------------------------------------------------\n"
         "The token service shipped as bank_gateway.py was pushed to production\n"
         "in a hurry. During a routine sweep the audit crew noticed a leftover\n"
-        "debug route (/sign_debug) that is still wired up in the local build.\n"
+        "debug route (/sign_debug) that is still wired up in the local build,\n"
+        "and a quieter one (/verify_debug) nobody remembers approving.\n"
         "\n"
         "We recovered one working credential off a teller's shared drive:\n"
         "\n"
         "    guest.token\n"
         "\n"
         "It is only good for read-only teller traffic. The vault order the bank\n"
-        "actually cares about is signed under a different role, and the gateway\n"
-        "will only hand over the registered marker when a correctly signed order\n"
-        "for that role is presented.\n"
+        "actually cares about is signed under a different role and carries a\n"
+        "rotating audit nonce; the gateway will only hand over the registered\n"
+        "marker when a correctly signed order is presented together with a\n"
+        "fresh proof of that same nonce.\n"
+        "\n"
+        "Two leads the night crew scribbled down - treat them as rumours, not\n"
+        "facts, because the shift that wrote them had been drinking:\n"
+        "\n"
+        "  * \"The debug route corrupts its answer about 10% of the time, and\n"
+        "     whenever it does it is always the p-side half.\"\n"
+        "  * \"The order the vault honours is the legacy string with\n"
+        "     NONCE=LS2026; the stale order pinned in the build still works.\"\n"
         "\n"
         "Ask the debug route to sign reference traffic and compare what it hands\n"
-        "back across a few requests before you trust any single answer.\n",
+        "back across a few requests before you trust any single answer - the raw\n"
+        "answer is not the signature it looks like. The quiet route answers\n"
+        "questions about the audit nonce slowly, one byte at a time.\n",
         encoding="utf-8",
     )
 

@@ -2,32 +2,49 @@
 
 Two handoffs are attached to this job:
 
-* `template.json` - a 12-node ring reference ("the template").
-* `junctions.json` - a large freeway-junction network.
+* `template.json` - a **weighted** 12-node ring reference ("the blueprint").
+  Each edge is `[u, v, w]` with an integer weight `w`.
+* `junctions.json` - a large weighted freeway-junction network.  Each edge is
+  `[u, v, w]`; each junction carries a short `label` fragment.
 
-Exactly one set of 12 junctions in the network forms an **induced** subgraph
-isomorphic to the template (two of your twelve are linked here if and only if
-the matching template pair is linked there). Each junction in `junctions.json`
-carries a short `label` fragment.
+Work on the induced 12-junction district that matches the blueprint.  A district
+is a set of twelve junctions; the edges considered are only those that run
+**between two of the twelve** (weighted).
 
-## 1. Fingerprint (uniqueness check)
+## What makes this hard
 
-To confirm you have the right twelve, compute the **Laplacian eigenvalue
-fingerprint** of the induced subgraph they form:
+The network is deliberately adversarial:
 
-* build the graph `L = D - A` over your twelve junctions, where `D` is the
-  diagonal degree matrix and `A` is the adjacency matrix (of the induced
-  twelve-node subgraph only);
-* take its eigenvalues, sort them ascending, and round each to 4 decimals;
-* this 12-number signature is the fingerprint. It must match the fingerprint
-  of `template.json` computed the same way. A wrong twelve will not match.
+* every junction has the **same total degree**, so degree filtering prunes
+  nothing; only local structure (triangle / clustering counts) and, finally,
+  weights distinguish districts;
+* several districts are **near-misses** - some share the blueprint's exact
+  topology but differ in a single edge weight, others differ by a single edge.
+  A topology-only (unweighted) search will therefore return *several*
+  plausible candidates.  Exactly one is correct.
+
+## 1. Weighted spectral fingerprint (the decision)
+
+For a candidate district build its weighted adjacency matrix `A` (12x12,
+`A[i][j] = w` if the two junctions are linked, else 0) and the weighted degree
+vector `d[i] = sum_j A[i][j]`.  Form the **weighted normalised Laplacian**
+
+    L = I - D^(-1/2) A D^(-1/2)      (D = diag(d))
+
+Take its eigenvalues, sort them **ascending** and round each to **4 decimals**.
+This 12-number signature is the fingerprint.  Compute the same signature for
+`template.json`; the correct district matches it exactly.  Every near-miss
+except one fails this check; it is the only admissible uniqueness test.
 
 ## 2. Flag construction
 
-Let each template node have canonical order `tpl_index` (0..11). Follow the
-isomorphism from the template onto your twelve junctions and read their
-`label` fragments in ascending `tpl_index` order. Concatenate the fragments
-verbatim (no separators) to get the flag body, then wrap it as
-`FTA{<body>}`.
+Ordering rule (not node index): work inside the matched district and compute
+the **weighted eigenvector centrality** of its twelve junctions - the principal
+eigenvector of the district's weighted adjacency matrix `A` (the eigenvector of
+its largest eigenvalue), scaled so that all of its entries are positive.
+
+Sort the twelve junctions by **descending** centrality value.  Read their
+`label` fragments in that order and concatenate them verbatim (no separators)
+to obtain the flag body; wrap it as `FTA{<body>}`.
 
 Report the fingerprint you used and the assembled token.

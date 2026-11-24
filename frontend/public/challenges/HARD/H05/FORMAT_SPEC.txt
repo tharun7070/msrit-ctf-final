@@ -20,5 +20,9 @@ Records are packed back-to-back with no padding and no separators. A reader
 consumes one record, advances by 6 + length bytes, and repeats until the
 buffer is exhausted.
 
+Lengths observed on this wire (bytes):
+    4   8   11   12   16   18   27   32   40   48
+
 Type codes seen on this wire (their meaning is defined elsewhere):
-    0x0001  0x0002  0x0003  0x0010  0x0011  0x0012  0x0020  0x0030
+    0x0001  0x0002  0x0003  0x0005  0x0007  0x0008  0x0010  0x0011
+    0x0012  0x0013  0x0014  0x0020  0x0021  0x0022  0x0030

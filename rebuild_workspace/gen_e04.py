@@ -1,27 +1,50 @@
 #!/usr/bin/env python3
-"""E04 — Del Perro Camera Roll (custom PNG steganography + UTF-7).
+"""E04 -- Del Perro Camera Roll (hardened multi-layer PNG steganography).
 
-Scheme (documented to participants):
-  * Carrier is an RGB PNG ("camera roll" still).
-  * Payload bits are packed 2 bits (LSBs) per channel, in COLUMN-MAJOR order:
-      for x in range(W): for y in range(H): channels R,G,B.
-  * Bit order inside each byte is MSB-first.
-  * First 2 decoded bytes = big-endian payload length L; next L bytes are the
-    message encoded as UTF-7.
+Organizer tooling. Participants only receive camera_roll.png + README.txt; every
+layer below has to be peeled in order. None of this is spelled out for them.
+
+Layers:
+  * Carrier   : deterministic synthetic RGB still (fixed seed).
+  * DECOY     : 2 LSBs (bits 0..1) of EVERY pixel, column-major R,G,B,
+                MSB-first, hold a 2-byte big-endian length + a fake
+                "burner bait" message.  A tool that scans all pixels this way
+                finds bait, not the drop.
+  * GATE      : only the pixels where (3x + 5y) % 7 == 4 are ever touched by
+                the real payload.  The coefficients live in the image
+                watermark (tEXt key "watermark") -- inferable, never spelled
+                out in README.txt.
+  * REAL plane: bits 2..3 of the R, then G, then B channel of gated pixels,
+                column-major, MSB-first.
+  * MASK      : the recovered byte stream is XORed with a repeating key =
+                SHA256(b"E04" + be16(W) + be16(H) + be32(SALT)); SALT is
+                logged in the watermark.
+  * WRAP      : after unmasking, 2-byte big-endian length + gzip(utf-7(flag)).
+  * DECOY meta: tEXt "flag" carries a plausible but WRONG FTA{...}.
 Private organizer tooling.
 """
-import math, random, sys
+import gzip, hashlib, math, random, struct, sys
 from pathlib import Path
 from PIL import Image
+from PIL.PngImagePlugin import PngInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_fta as L
 
 W, H = 160, 120
 
+# --- hidden parameters (watermark holds these; README holds none of them) ---
+GATE_A, GATE_B, GATE_M, GATE_T = 3, 5, 7, 4     # (a*x + b*y) % m == t
+SALT = 0xE04C0DE                                # logged (as hex) in the watermark
+
+# --- decoys ----------------------------------------------------------------
+DECOY_FLAG = "FTA{lsb_n0t_th1s_w4y_r00k13}"     # wrong flag, in metadata
+DECOY_MSG = ("burner bait :: drop aborted, fleet rotated. "
+             "decoy token FTA{d3c0y_2_lsb_b41t_4nd_sw1tch}")
+
 
 def build_carrier():
-    """Synthetic Del Perro night skyline — deterministic, looks like a snapshot."""
+    """Synthetic Del Perro night skyline -- deterministic, looks like a snapshot."""
     rnd = random.Random(0xDE1FE440)
     img = Image.new("RGB", (W, H))
     px = img.load()
@@ -46,16 +69,33 @@ def build_carrier():
     return img
 
 
-def embed(img, message: str):
-    payload = message.encode("utf-7")
-    stream = len(payload).to_bytes(2, "big") + payload
+def gated(x, y, a=GATE_A, b=GATE_B, m=GATE_M, t=GATE_T):
+    return (a * x + b * y) % m == t
+
+
+def bytes_to_bits(bs):
     bits = []
-    for byte in stream:
+    for byte in bs:
         for sh in range(7, -1, -1):
             bits.append((byte >> sh) & 1)
-    if len(bits) > W * H * 3 * 2:
-        raise ValueError("carrier too small for payload")
-    px = img.load()
+    return bits
+
+
+def keystream(n, w=W, h=H, salt=SALT):
+    """Repeating XOR key derived from the frame geometry + the watermark salt."""
+    seed = b"E04" + struct.pack(">HH", w, h) + struct.pack(">I", salt)
+    d = hashlib.sha256(seed).digest()
+    return (d * (n // len(d) + 1))[:n]
+
+
+def xor_bytes(data, key):
+    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
+
+
+def embed_decoy(px):
+    """Plant the naive-readable bait in the low 2 bits of every pixel."""
+    stream = len(DECOY_MSG.encode("utf-7")).to_bytes(2, "big") + DECOY_MSG.encode("utf-7")
+    bits = bytes_to_bits(stream)
     k = 0
     for x in range(W):
         for y in range(H):
@@ -71,24 +111,75 @@ def embed(img, message: str):
     return k
 
 
+def embed_real(px, masked: bytes):
+    """Plant the real (masked) stream in bits 2..3 of GATED pixels only."""
+    bits = bytes_to_bits(masked)
+    k = 0
+    for x in range(W):
+        for y in range(H):
+            if not gated(x, y):
+                continue
+            r, g, b = px[x, y]
+            out = []
+            for c in (r, g, b):
+                if k + 2 <= len(bits):
+                    two = (bits[k] << 1) | bits[k + 1]
+                    c = (c & 0xF3) | (two << 2)      # clear bits 2..3, write
+                    k += 2
+                out.append(c)
+            px[x, y] = tuple(out)
+    if k < len(bits):
+        raise ValueError("carrier too small for payload")
+    return k
+
+
+README = """DEL PERRO CCTV EXPORT
+----------------------
+Still #4471 recovered from a burnt dashcam of the Vinewood security
+contractor. The frame is heavier than its picture deserves, and the operator
+who parked it here left more than one thing inside.
+
+He never wrote a file -- he stained the still. The frame carries a watermark,
+and only the pixels that watermark blesses were ever used. Scan every pixel's
+low bits instead and you will pull the burner bait he left for that exact
+mistake: a tidy little message that is not the drop.
+
+The operator still cuts his drops the way Del Perro's old trading cards were
+trimmed -- down a column, top to bottom. Whatever the blessed pixels hold has
+been smeared with a mask built from the frame's own geometry and from a salt
+the watermark logs, then folded through two further wraps before it will read
+as text at all.
+
+Recover the drop. The first bytes of the unwrapped stream are its own
+big-endian length.
+"""
+
+
 def main():
     out = L.out_dir("E04")
     img = build_carrier()
-    used = embed(img, L.FLAGS["E04"])
-    img.save(out / "camera_roll.png")
-    (out / "README.txt").write_text(
-        "DEL PERRO CCTV EXPORT\n"
-        "----------------------\n"
-        "Still #4471 recovered from a burnt dashcam of the Vinewood security\n"
-        "contractor.\n\n"
-        "The operator's dead-drop tooling packs recon notes into images:\n"
-        "  - 2 least-significant bits per colour channel, R then G then B.\n"
-        "  - Pixels are read COLUMN by column (down a column, then next column).\n"
-        "  - Bits fill each byte most-significant first.\n"
-        "  - The first 2 decoded bytes are a big-endian length, then that many\n"
-        "    bytes of the message (the message alphabet is UTF-7).\n",
-        encoding="utf-8")
-    print(f"[E04] embedded {used} payload bits -> {(out / 'camera_roll.png').name}")
+    px = img.load()
+
+    # real payload: UTF-7 -> gzip -> length prefix -> XOR mask
+    payload = L.FLAGS["E04"].encode("utf-7")
+    gz = gzip.compress(payload, compresslevel=9, mtime=0)
+    wrapped = len(gz).to_bytes(2, "big") + gz
+    ks = keystream(len(wrapped))
+    masked = xor_bytes(wrapped, ks)
+
+    embed_decoy(px)
+    used = embed_real(px, masked)
+
+    info = PngInfo()
+    info.add_text("Comment", "DEL PERRO CCTV EXPORT // still 4471 // do not distribute")
+    info.add_text("watermark",
+                  f"DUSKGRID a={GATE_A},b={GATE_B},mod={GATE_M},target={GATE_T} "
+                  f"salt=0x{SALT:08X}")
+    info.add_text("flag", DECOY_FLAG)
+    img.save(out / "camera_roll.png", pnginfo=info)
+    (out / "README.txt").write_text(README, encoding="utf-8")
+    print(f"[E04] wrapped {len(gz)}B -> {used} gated payload bits -> "
+          f"{(out / 'camera_roll.png').name}")
 
 
 if __name__ == "__main__":

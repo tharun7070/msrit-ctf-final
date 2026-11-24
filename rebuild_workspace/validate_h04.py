@@ -8,6 +8,7 @@
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 WS = r"d:\ctf\FLAG_THEFT_AUTO_FINAL\rebuild_workspace"
@@ -49,6 +50,22 @@ def main():
     wrong_role = {"role": "guest", "msg": gw.ADMIN_MESSAGE, "sig": format(correct_sig, "x")}
     assert gw.verify(wrong_role) is True
     assert gw.submit(wrong_role) is None, "non-admin role must not unlock the flag"
+
+    # 2d) the pinned legacy decoy is genuinely signed (passes verify) but the
+    #     hardened submit gate refuses it (wrong nonce / stale message).
+    assert gw.verify(gw.DECOY_TOKEN) is True, "decoy token should verify"
+    assert gw.submit(gw.DECOY_TOKEN) is None, "decoy token must not unlock the flag"
+
+    # 2e) an admin order that is correctly signed but carries a WRONG nonce is
+    #     refused - the live nonce from the second oracle is mandatory.
+    live_nonce = gw._nonce_hex()
+    wrong_nonce = format(int(live_nonce, 16) ^ 1, "0%dx" % (2 * gw.GUARD_LEN))
+    wrong_msg = gw.ADMIN_MESSAGE.replace("__NONCE__", wrong_nonce)
+    bad_nonce_token = {"role": "admin", "msg": wrong_msg, "nonce": wrong_nonce,
+                       "sig": format(gw._sign(int.from_bytes(wrong_msg.encode(), "big")), "x"),
+                       "ts": int(time.time())}
+    assert gw.verify(bad_nonce_token) is True, "wrong-nonce order is still a valid signature"
+    assert gw.submit(bad_nonce_token) is None, "wrong nonce must not unlock the flag"
 
     # 3) a wrong flag string is not the answer.
     assert "FTA{r4gg1ng_r0ugh_but_l3g4l}" != L.FLAGS["H04"]

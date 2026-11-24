@@ -1,25 +1,39 @@
 #!/usr/bin/env python3
-"""M05 - Debugging the Dispatch (concurrency race + 32-bit checksum overflow).
+"""M05 - Debugging the Dispatch (stacked concurrency + multi-bug stage 2).
 
 Builds the participant package for M05 in L.out_dir("M05"):
 
   * dispatch_packets.json - 1200 tagged freight packets.
-  * broken_dispatch.py    - multithreaded depot node whose shared counters are
-                            updated non-atomically, so the sealed manifest it
-                            writes to out.bin is wrong.
-  * README.txt            - threading model only (no spoiler).
+  * broken_dispatch.py    - multithreaded depot node.  It clears packets across
+                            a worker pool that updates TWO shared structures
+                            (a per-lane tally dict and a running ledger) with a
+                            non-atomic read-modify-write, so the sealed manifest
+                            it writes to out.bin is wrong.
+  * README.txt            - intended data flow only (no spoiler).
 
-The intended (lock-correct) behaviour seals
+The intended (correct) behaviour seals
+
     out.bin = b85encode(zlib.compress(json.dumps(manifest)))
-where the manifest embeds the *source of stage 2*.  Stage 2 computes a custom
-32-bit checksum whose naive form forgets the `& 0xFFFFFFFF` overflow mask; the
-corrected stage-2 output is exactly L.FLAGS["M05"].
+
+where the manifest carries the *source of stage 2* masked by a keystream keyed
+on the node's final (ledger, dispatched) pair.  Stage 2 has TWO independent,
+non-obvious bugs:
+
+  (a) a fixed-width 32-bit rotate whose overflow mask is missing, and
+  (b) a length-prefixed record parsed with the wrong endianness and an
+      off-by-one field offset.
+
+Fixing both lets stage 2 emit an outer payload that is itself one more
+reversible layer (a base64 of the flag bytes XORed with a fixed key).  A
+partial fix instead trips the record's trailer check and falls back to an
+archived DECOY flag.
 
 Private organizer tooling.  The flag never appears in any shipped artifact.
 """
 import base64
 import json
 import random
+import struct
 import sys
 from pathlib import Path
 
@@ -30,47 +44,109 @@ HERE = Path(__file__).resolve().parent
 MASK32 = 0xFFFFFFFF
 MASK64 = (1 << 64) - 1
 PACKET_COUNT = 1200
+WORKER_THREADS = 8
 
-# The dispatch node's two shared 32-bit lane constants (stage 2).
+# Fixed stage-2 lane tags and record geometry.
 S2_TAGS = [random.Random(0xF7A50C11).getrandbits(32) for _ in range(40)]
+RECORD_LEN = 96
+
+# Third (outer) layer: fixed rotating key over the flag bytes, then base64.
+THIRD_KEY = bytes((0x5A, 0xC3, 0x77, 0x21))
+
+# Decoys: a plausible wrong flag reachable by a partial fix / a shallow grep.
+DECOY_ARCHIVED = "FTA{d15p4tch_l3g4cy_p4th_d3c0y}"
+DECOY_NOTES = "FTA{v01d_s3gm3nt_n0t_d15p4tch3d}"
 
 # ----------------------------------------------------------------------------
-# Stage 2 logic.  The variant embedded in the manifest OMITS the overflow mask
-# (the shipped bug); the corrected variant inserts it (the solve).
+# Stage 2 logic.  The variant embedded in the manifest omits the 32-bit rotate
+# mask and mis-frames the record (the shipped bugs); the corrected variant
+# restores both (the solve).
 # ----------------------------------------------------------------------------
-def stage2_signature(tags, masked):
-    h = 0x1F2E3D4C
+def _rotl32(x: int, r: int, masked: bool) -> int:
+    if masked:
+        x &= MASK32
+    v = (x << r) | (x >> (32 - r))
+    return v & MASK32 if masked else v
+
+
+def s2_signature(tags, masked: bool) -> int:
+    h = 0x1BADB002
     for t in tags:
-        h = h + t
-        h = h * 1103515245
-        if masked:
-            h &= MASK32
-        h = h ^ (h >> 15)
-        h = h * 2246822519
-        if masked:
-            h &= MASK32
-        h = h ^ (h >> 13)
-    return h & MASK32 if masked else h
+        h = (h + t) & MASK32
+        h = _rotl32(h, 7, masked)
+        h ^= h >> 16
+        h = (h * 0x9E3779B9) & MASK32
+    return h & MASK32
 
 
-def stage2_keystream(seed, length, masked):
-    h = seed
+def s2_keystream(seed: int, length: int) -> bytes:
+    h = seed & MASK32
     out = bytearray()
     for _ in range(length):
-        h = h * 1664525 + 1013904223
-        if masked:
-            h &= MASK32
-        out.append(h & 0xFF)
+        h = (h * 1103515245 + 12345) & MASK32
+        out.append((h >> 16) & 0xFF)
     return bytes(out)
 
 
-def build_stage2_source(flag: str) -> str:
-    """Return the stage-2 script text (naive / mask-free) that the manifest
-    embeds.  Running the naive form yields garbage; masking the folds fixes it."""
-    flag_bytes = flag.encode()
-    seed = stage2_signature(S2_TAGS, masked=True)
-    ks = stage2_keystream(seed, len(flag_bytes), masked=True)
-    sealed = bytes(f ^ k for f, k in zip(flag_bytes, ks))
+def s2_process(tags, sealed, rot_masked: bool, rec_buggy: bool) -> bytes:
+    """Reimplementation of the shipped stage-2 program, parametrised on which
+    bugs are present.  Raises ValueError when the record trailer rejects."""
+    h = 0x1BADB002
+    for t in tags:
+        h = (h + t) & MASK32
+        h = _rotl32(h, 7, rot_masked)
+        h ^= h >> 16
+        h = (h * 0x9E3779B9) & MASK32
+    seed = h & MASK32
+    ks = s2_keystream(seed, len(sealed))
+    plain = bytes(a ^ b for a, b in zip(sealed, ks))
+    if rec_buggy:
+        n = int.from_bytes(plain[0:2], "little")   # wrong endianness
+        body = plain[3:3 + n]                       # off-by-one offset
+    else:
+        n = int.from_bytes(plain[0:2], "big")
+        body = plain[2:2 + n]
+    trailer = int.from_bytes(plain[2 + n:6 + n], "big")
+    if (sum(body) & 0xFFFF) != trailer:
+        raise ValueError("reconciliation record failed its trailer check")
+    return body
+
+
+# ----------------------------------------------------------------------------
+# Third (outer) layer.
+# ----------------------------------------------------------------------------
+def third_layer_encode(flag: str) -> bytes:
+    fb = flag.encode()
+    x = bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(fb))
+    return base64.b64encode(x)
+
+
+def third_layer_decode(payload: bytes) -> str:
+    x = base64.b64decode(payload)
+    fb = bytes(b ^ THIRD_KEY[i % 4] for i, b in enumerate(x))
+    return fb.decode("ascii")
+
+
+# ----------------------------------------------------------------------------
+# Record framing (what stage 2 unmasks): [>u16 length][payload][>u32 trailer]
+# followed by zero padding to RECORD_LEN.
+# ----------------------------------------------------------------------------
+def build_record(payload: bytes) -> bytes:
+    lb = len(payload)
+    assert lb < 0x10000
+    plain = bytearray(RECORD_LEN)
+    plain[0:2] = struct.pack(">H", lb)
+    plain[2:2 + lb] = payload
+    plain[2 + lb:6 + lb] = struct.pack(">I", sum(payload) & 0xFFFF)
+    return bytes(plain)
+
+
+def build_stage2_source() -> str:
+    """Return the stage-2 script text (buggy / shipped variant)."""
+    payload = third_layer_encode(L.FLAGS["M05"])
+    plain = build_record(payload)
+    ks = s2_keystream(s2_signature(S2_TAGS, masked=True), len(plain))
+    sealed = bytes(a ^ b for a, b in zip(plain, ks))
 
     tags_lines = []
     for i in range(0, len(S2_TAGS), 6):
@@ -85,47 +161,73 @@ def build_stage2_source(flag: str) -> str:
         '#!/usr/bin/env python3\n'
         '"""Stage 2 - depot reconciliation.\n'
         '\n'
-        'Every packet that clears the gate leaves a 32-bit tag on the lane.\n'
-        'This stage folds those tags into a rolling signature and uses the\n'
-        'signature to unmask the sealed manifest text.  Lane arithmetic is\n'
-        '32-bit unsigned.\n'
+        'The dispatch node folds the lane tags below into a rolling 32-bit\n'
+        'signature.  That signature keys a keystream which unmasks the sealed\n'
+        'reconciliation record; the record is length-prefixed and carries a\n'
+        'trailer that must agree with its payload, and the recovered payload is\n'
+        'handed on unchanged.  Lane arithmetic is 32-bit unsigned.\n'
         '"""\n'
         'import sys\n'
         '\n'
-        '# 32-bit tags observed on the dispatch lane, in arrival order.\n'
+        'MASK = 0xFFFFFFFF\n'
+        '\n'
+        '# Lane tags observed on the dispatch lane, in arrival order.\n'
         'TAGS = [\n'
         + "\n".join(tags_lines) + '\n'
         ']\n'
         '\n'
-        '# Sealed manifest text, each byte masked by the rolling lane signature.\n'
+        '# Sealed reconciliation record, masked with the signature keystream.\n'
         'SEALED = [\n'
         + "\n".join(sealed_lines) + '\n'
         ']\n'
         '\n'
+        '# Archived value from a retired build.  Reference only -- the current\n'
+        '# record supersedes it on every clean run.\n'
+        'ARCHIVED_VALUE = ' + repr(DECOY_ARCHIVED) + '\n'
+        '\n'
+        '\n'
+        'def rotl32(x, r):\n'
+        '    return (x << r) | (x >> (32 - r))\n'
+        '\n'
         '\n'
         'def signature(tags):\n'
-        '    h = 0x1F2E3D4C\n'
+        '    h = 0x1BADB002\n'
         '    for t in tags:\n'
-        '        h = h + t\n'
-        '        h = h * 1103515245\n'
-        '        h = h ^ (h >> 15)\n'
-        '        h = h * 2246822519\n'
-        '        h = h ^ (h >> 13)\n'
-        '    return h\n'
+        '        h = (h + t) & MASK\n'
+        '        h = rotl32(h, 7)\n'
+        '        h ^= h >> 16\n'
+        '        h = (h * 0x9E3779B9) & MASK\n'
+        '    return h & MASK\n'
         '\n'
         '\n'
-        'def recover(blob, seed):\n'
+        'def keystream(seed, length):\n'
+        '    h = seed & MASK\n'
         '    out = bytearray()\n'
-        '    h = seed\n'
-        '    for b in blob:\n'
-        '        h = h * 1664525 + 1013904223\n'
-        '        out.append(b ^ (h & 0xFF))\n'
+        '    for _ in range(length):\n'
+        '        h = (h * 1103515245 + 12345) & MASK\n'
+        '        out.append((h >> 16) & 0xFF)\n'
         '    return bytes(out)\n'
         '\n'
         '\n'
+        'def extract_record(plain):\n'
+        '    n = int.from_bytes(plain[0:2], "little")\n'
+        '    body = plain[3:3 + n]\n'
+        '    trailer = int.from_bytes(plain[2 + n:6 + n], "big")\n'
+        '    if (sum(body) & 0xFFFF) != trailer:\n'
+        '        raise ValueError("reconciliation record failed its trailer check")\n'
+        '    return body\n'
+        '\n'
+        '\n'
         'def main():\n'
-        '    text = recover(SEALED, signature(TAGS)).decode("latin-1")\n'
-        '    sys.stdout.write(text + "\\n")\n'
+        '    try:\n'
+        '        seed = signature(TAGS)\n'
+        '        ks = keystream(seed, len(SEALED))\n'
+        '        plain = bytes(a ^ b for a, b in zip(SEALED, ks))\n'
+        '        payload = extract_record(plain)\n'
+        '    except ValueError:\n'
+        '        sys.stdout.write(ARCHIVED_VALUE + "\\n")\n'
+        '        return\n'
+        '    sys.stdout.write(payload.decode("ascii") + "\\n")\n'
         '\n'
         '\n'
         'if __name__ == "__main__":\n'
@@ -161,8 +263,8 @@ worker threads, then seals an outbound manifest to out.bin.
 Threading model
 ---------------
 A single FIFO queue feeds __WORKERS__ worker threads.  The node keeps two
-shared process-wide counters: the number of packets cleared and the running
-ledger of packet tags.  Each worker updates both counters as it clears a
+shared process-wide structures: a per-lane tally of cleared packets and a
+running ledger of cleared lane tags.  Each worker updates both as it clears a
 packet; when every worker has drained the queue the node seals its manifest
 and writes out.bin.
 """
@@ -179,6 +281,7 @@ sys.setswitchinterval(1e-6)
 MASK64 = (1 << 64) - 1
 WORKER_THREADS = __WORKERS__
 SEALED_MANIFEST_B64 = "__SEALED__"
+NOTES = "__NOTES__"
 
 
 def seed_from(acc, n):
@@ -200,24 +303,25 @@ def keystream(seed, length):
 class DispatchNode:
     def __init__(self, packets):
         self.packets = packets
-        self.dispatched = 0
         self.ledger = 0
+        self.lanes = {}
         self.trace = []
         self.queue = queue.Queue()
         for p in packets:
             self.queue.put(p)
 
-    def publish(self, seq, pkt):
+    def publish(self, lane, pkt):
         # depot trace: note the clearance on the shared dispatch log
-        self.trace.append((seq, pkt["id"]))
+        self.trace.append((lane, pkt["id"]))
 
     def clear_packet(self, pkt):
-        # snapshot the node counters, publish the clearance, then commit
-        seq = self.dispatched
+        # snapshot both shared structures, publish the clearance, then commit
+        lane = pkt["lane"]
+        seen = self.lanes.get(lane, 0)
         acc = self.ledger
-        self.publish(seq, pkt)
+        self.publish(lane, pkt)
         self.ledger = (acc + pkt["tag"]) & MASK64
-        self.dispatched = seq + 1
+        self.lanes[lane] = seen + 1
 
     def _worker(self):
         while True:
@@ -235,15 +339,20 @@ class DispatchNode:
         for w in workers:
             w.join()
 
+    def dispatched(self):
+        return sum(self.lanes.values())
+
     def seal(self):
         sealed = base64.b64decode(SEALED_MANIFEST_B64)
-        key = keystream(seed_from(self.ledger, self.dispatched), len(sealed))
+        key = keystream(seed_from(self.ledger, self.dispatched()), len(sealed))
         source = bytes(a ^ b for a, b in zip(sealed, key))
         return {
             "manifest": "DEPOT-DISPATCH-MANIFEST",
-            "dispatched": self.dispatched,
+            "dispatched": self.dispatched(),
             "ledger": self.ledger,
+            "lane_counts": {str(k): self.lanes[k] for k in sorted(self.lanes)},
             "stage2_b64": base64.b64encode(source).decode(),
+            "notes": NOTES,
         }
 
 
@@ -256,7 +365,7 @@ def main():
     blob = base64.b85encode(zlib.compress(json.dumps(manifest).encode()))
     (here / "out.bin").write_bytes(blob)
     print("[depot] dispatched=%d ledger=%d -> out.bin (%d bytes)"
-          % (node.dispatched, node.ledger, len(blob)))
+          % (manifest["dispatched"], manifest["ledger"], len(blob)))
 
 
 if __name__ == "__main__":
@@ -268,7 +377,7 @@ README = """DEPOT DISPATCH NODE - field manual
 
 dispatch_packets.json
     The outbound freight log.  Every entry is one tagged packet:
-        { "id": <ordinal>, "tag": <64-bit lane tag> }
+        { "id": <ordinal>, "tag": <64-bit lane tag>, "lane": <lane index> }
     Packets are delivered to the node in file order.
 
 broken_dispatch.py
@@ -282,21 +391,27 @@ Threading model
 ---------------
     * One FIFO queue holds every packet.
     * WORKER_THREADS worker threads each pull packets until the queue drains.
-    * The node maintains two process-wide counters: the number of cleared
-      packets and the ledger of cleared tags.
-    * Workers share those counters; each worker applies its own update as it
-      clears a packet.
-    * When every worker has drained the queue the node seals a manifest and
-      writes it to out.bin.
+    * The node maintains two shared process-wide structures: a per-lane tally
+      of cleared packets, and a running ledger of the cleared lane tags.
+    * Every worker touches both structures as it clears a packet.
+    * When every worker has drained the queue the node seals a manifest: the
+      reported dispatch count is the sum of the lane tallies, and the ledger is
+      the tagged total.  It writes that manifest to out.bin.
 
-    out.bin is base85(zlib(json)) of the sealed manifest.
+    out.bin is base85(zlib(json)) of the sealed manifest.  The manifest carries
+    a stage-2 program masked by a keystream keyed on the node's final
+    (ledger, dispatched) pair.
 
 Reconciliation
 --------------
-    The sealed manifest is only meaningful when the node reports that every
-    packet in the log was cleared, and that the ledger balances against the
-    tags recorded on the lane.  A node that prints a short count has not
-    finished the run.
+    A clean run must clear every packet in the log exactly once: the tally
+    totals and the ledger both have to balance against the freight on the lane.
+    Numbers that drift between runs, or a run whose totals fall short of the
+    log, are signs that the node has not finished the dispatch.
+
+    The stage-2 program is not the answer.  It unmasks one further record whose
+    trailer must agree with its own payload; the payload that survives is still
+    wrapped exactly once more.
 """
 
 
@@ -306,52 +421,79 @@ def main():
 
     # --- packets ---
     rnd = random.Random(0x44515350)  # "DQSP"
-    packets = [{"id": i, "tag": rnd.getrandbits(64)} for i in range(PACKET_COUNT)]
+    packets = [{"id": i,
+                "tag": rnd.getrandbits(64),
+                "lane": rnd.randrange(8)} for i in range(PACKET_COUNT)]
     (out / "dispatch_packets.json").write_text(
         json.dumps(packets, indent=1), encoding="utf-8")
     acc_correct = sum(p["tag"] for p in packets) & MASK64
 
     # --- stage 2 source + outer seal ---
-    stage2_src = build_stage2_source(flag).encode("utf-8")
+    stage2_src = build_stage2_source().encode("utf-8")
     outer_key = keystream(seed_from(acc_correct, PACKET_COUNT), len(stage2_src))
     sealed_manifest = bytes(a ^ b for a, b in zip(stage2_src, outer_key))
     sealed_b64 = base64.b64encode(sealed_manifest).decode()
 
     # --- participant-facing dispatcher ---
     broken = (BROKEN_DISPATCH_TEMPLATE
-              .replace("__WORKERS__", "8")
-              .replace("__SEALED__", sealed_b64))
+              .replace("__WORKERS__", str(WORKER_THREADS))
+              .replace("__SEALED__", sealed_b64)
+              .replace("__NOTES__", DECOY_NOTES))
     (out / "broken_dispatch.py").write_text(broken, encoding="utf-8")
     (out / "README.txt").write_text(README, encoding="utf-8")
 
-    # --- self-checks (organizer side) ---
-    flag_bytes = flag.encode()
-    sealed2 = bytes(
-        f ^ k for f, k in
-        zip(flag_bytes, stage2_keystream(stage2_signature(S2_TAGS, True),
-                                         len(flag_bytes), True)))
-    # corrected stage-2 masks -> recovers the flag exactly
-    good_seed = stage2_signature(S2_TAGS, True)
-    good_ks = stage2_keystream(good_seed, len(sealed2), True)
-    recovered = bytes(s ^ k for s, k in zip(sealed2, good_ks)).decode("latin-1")
-    assert recovered == flag, recovered
-    # naive stage-2 (masks omitted) -> recovers something else
-    naive_seed = stage2_signature(S2_TAGS, False)
-    naive_ks = stage2_keystream(naive_seed, len(sealed2), False)
-    naive_recovered = bytes(s ^ k for s, k in zip(sealed2, naive_ks))
-    assert naive_recovered != flag_bytes, "naive stage-2 must be wrong"
+    # --- organizer self-checks -------------------------------------------------
+    # (1) the corrected stage-2 recovers the outer payload, which decodes to flag
+    payload = third_layer_encode(flag)
+    plain = build_record(payload)
+    ks = s2_keystream(s2_signature(S2_TAGS, True), len(plain))
+    sealed = bytes(a ^ b for a, b in zip(plain, ks))
+    good = s2_process(S2_TAGS, sealed, rot_masked=True, rec_buggy=False)
+    assert good == payload, "correct stage-2 payload mismatch"
+    assert third_layer_decode(good) == flag, "third layer did not yield the flag"
 
-    # correctness sanity on the dispatcher aggregation
+    # (2) the two bugs are independent; each partial variant must be rejected
+    assert s2_signature(S2_TAGS, False) != s2_signature(S2_TAGS, True), \
+        "rotate mask must matter"
+    for rot_masked, rec_buggy, label in (
+            (True, True, "record bug only"),
+            (False, False, "rotate bug only"),
+            (False, True, "both bugs")):
+        try:
+            bad = s2_process(S2_TAGS, sealed, rot_masked, rec_buggy)
+        except ValueError:
+            continue  # fell through to the archived decoy -> good
+        assert bad != payload and third_layer_decode(bad) != flag, label
+
+    # (3) the shipped stage-2 program itself falls back to the decoy
+    ns = {"__name__": "stage2_check"}
+    exec(compile(build_stage2_source(), "<stage2>", "exec"), ns)
+    h = 0x1BADB002
+    for t in ns["TAGS"]:
+        h = (h + t) & MASK32
+        h = _rotl32(h, 7, False)
+        h ^= h >> 16
+        h = (h * 0x9E3779B9) & MASK32
+    plain2 = bytes(a ^ b for a, b in
+                   zip(ns["SEALED"], s2_keystream(h & MASK32, len(ns["SEALED"]))))
+    try:
+        ns["extract_record"](plain2)
+        raise AssertionError("shipped stage-2 must not accept its own record")
+    except ValueError:
+        pass
+    assert ns["ARCHIVED_VALUE"] == DECOY_ARCHIVED
+
+    # (4) correctness sanity on the dispatcher aggregation
     assert acc_correct == sum(p["tag"] for p in packets) % (1 << 64)
 
-    # the flag must never appear in any shipped artifact
+    # (5) the flag must never appear in any shipped artifact
     for name in ("broken_dispatch.py", "dispatch_packets.json", "README.txt"):
         text = (out / name).read_text(encoding="utf-8")
         assert flag not in text, name
 
     print("[M05] wrote %s" % out)
-    print("[M05] packets=%d stage2_src_bytes=%d correct_ledger=%d"
-          % (PACKET_COUNT, len(stage2_src), acc_correct))
+    print("[M05] packets=%d stage2_src_bytes=%d correct_ledger=%d payload=%r"
+          % (PACKET_COUNT, len(stage2_src), acc_correct, payload[:16]))
 
 
 if __name__ == "__main__":

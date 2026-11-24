@@ -2,16 +2,28 @@ MAZE BANK OF LOS SANTOS - SECURITY AUDIT BRIEF (case ref: H04)
 ----------------------------------------------------------------
 The token service shipped as bank_gateway.py was pushed to production
 in a hurry. During a routine sweep the audit crew noticed a leftover
-debug route (/sign_debug) that is still wired up in the local build.
+debug route (/sign_debug) that is still wired up in the local build,
+and a quieter one (/verify_debug) nobody remembers approving.
 
 We recovered one working credential off a teller's shared drive:
 
     guest.token
 
 It is only good for read-only teller traffic. The vault order the bank
-actually cares about is signed under a different role, and the gateway
-will only hand over the registered marker when a correctly signed order
-for that role is presented.
+actually cares about is signed under a different role and carries a
+rotating audit nonce; the gateway will only hand over the registered
+marker when a correctly signed order is presented together with a
+fresh proof of that same nonce.
+
+Two leads the night crew scribbled down - treat them as rumours, not
+facts, because the shift that wrote them had been drinking:
+
+  * "The debug route corrupts its answer about 10% of the time, and
+     whenever it does it is always the p-side half."
+  * "The order the vault honours is the legacy string with
+     NONCE=LS2026; the stale order pinned in the build still works."
 
 Ask the debug route to sign reference traffic and compare what it hands
-back across a few requests before you trust any single answer.
+back across a few requests before you trust any single answer - the raw
+answer is not the signature it looks like. The quiet route answers
+questions about the audit nonce slowly, one byte at a time.

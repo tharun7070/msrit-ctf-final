@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
 """M02 — Airport Ghost Flight. Reference solver (private).
 
-Parses `airport_traffic.pcap` by hand (no scapy): walks the classic pcap record
-headers, decodes IPv4/TCP, then scans every TCP payload for the custom frame
-MAGIC 0xDEAD1A70.  Frames are parsed as:
+Inverts the nested, multi-layer protocol written by gen_m02.py:
 
-    MAGIC(u32 LE) | type(u16 LE) | length(u16 LE) | payload | CRC32(u32 LE)
+  1. classic pcap -> IPv4/TCP -> TCP payloads (no scapy).
+  2. OUTER "tower seal frame" (little-endian):
+         magic 0xDEAD1A70 | otype u16 | olen u16 | oseq u32
+         | route u16 | payload(olen) | seal u32
+     The seal covers frame[0:12] || payload; the 2-byte `route` field
+     (frame[12:14]) is SKIPPED.  A naive whole-frame CRC32 fails on real frames.
+  3. otype must be 0x0A.
+  4. the NESTED inner "flight frame" inside the payload (different magic):
+         magic 0x1A70C0DE | version u8 | itype u8 | iseq u32 | ilen u16
+         | masked data
+     version must be 1 and itype must be 0x5C.
+  5. the inner data is unmasked with keystream(iseq) (an LCG keyed by the
+     inner sequence number — NOT the frame CRC).
+  6. fragments are ordered by the INNER iseq; the OUTER oseq is a red herring.
 
-A frame is accepted only when its CRC32 (zlib.crc32 over MAGIC|type|length|payload)
-matches the stored value AND type == 0x0A.  Accepted payloads are laid out as:
-
-    payload[0:6]   opaque header
-    payload[6:10]  sequence (u32 LE)
-    payload[10:]   data XOR (frame's 4 CRC32 bytes, repeated)
-
-Fragments are sorted by sequence, XOR-decoded, concatenated, and compared to the
-real flag.
+Accepted fragments are sorted by inner sequence and concatenated, then compared
+against the real flag.
 """
 import struct
 import sys
@@ -25,9 +29,26 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_fta as L
 
-MAGIC = L.FRAME_MAGIC
-MAGIC_BYTES = struct.pack("<I", MAGIC)
-TYPE_DATA = 0x0A
+OUTER_MAGIC = L.FRAME_MAGIC                     # 0xDEAD1A70
+OUTER_MAGIC_BYTES = struct.pack("<I", OUTER_MAGIC)
+INNER_MAGIC = 0x1A70C0DE
+INNER_MAGIC_BYTES = struct.pack("<I", INNER_MAGIC)
+OUTER_TYPE_DATA = 0x0A
+INNER_VER = 1
+INNER_TYPE_FRAG = 0x5C
+
+
+def keystream(seq: int, n: int) -> bytes:
+    state = (seq ^ 0xA5A5A5A5) & 0xFFFFFFFF
+    out = bytearray(n)
+    for i in range(n):
+        state = (state * 1664525 + 1013904223) & 0xFFFFFFFF
+        out[i] = (state >> 24) & 0xFF
+    return bytes(out)
+
+
+def apply_mask(data: bytes, seq: int) -> bytes:
+    return bytes(a ^ b for a, b in zip(data, keystream(seq, len(data))))
 
 
 def iter_pcap_packets(raw: bytes):
@@ -54,64 +75,83 @@ def tcp_payload(pkt: bytes):
     if pkt[9] != 6:  # not TCP
         return None
     ip_total = (pkt[2] << 8) | pkt[3]
-    src = ".".join(str(b) for b in pkt[12:16])
-    dst = ".".join(str(b) for b in pkt[16:20])
     tcp = pkt[ihl:]
     doff = (tcp[12] >> 4) * 4
     if doff < 20:
         return None
     end = min(ip_total, len(pkt))
-    payload = pkt[ihl + doff:end]
-    return src, dst, payload
+    return pkt[ihl + doff:end]
 
 
-def parse_frames(payload: bytes):
-    """Yield (type, frame_payload, crc_ok) for every frame found in `payload`."""
+def parse_outer_frames(payload: bytes):
+    """Yield dicts for every OUTER frame found, with the genuine-seal verdict."""
     i = 0
     while True:
-        j = payload.find(MAGIC_BYTES, i)
-        if j < 0 or j + 8 > len(payload):
+        j = payload.find(OUTER_MAGIC_BYTES, i)
+        if j < 0 or j + 14 > len(payload):
             return
-        ftype, flen = struct.unpack("<HH", payload[j + 4:j + 8])
-        end = j + 8 + flen
-        if flen > 4096 or end + 4 > len(payload):
+        otype, olen = struct.unpack("<HH", payload[j + 4:j + 8])
+        end = j + 14 + olen
+        if olen > 8192 or end + 4 > len(payload):
             i = j + 1
             continue
-        body = payload[j:end]
-        stored_crc = struct.unpack("<I", payload[end:end + 4])[0]
-        ok = (zlib.crc32(body) & 0xFFFFFFFF) == stored_crc
-        yield ftype, payload[j + 8:end], stored_crc, ok
-        i = end + 4  # step past this frame
+        oseq = struct.unpack("<I", payload[j + 8:j + 12])[0]
+        route = struct.unpack("<H", payload[j + 12:j + 14])[0]
+        pl = payload[j + 14:end]
+        seal = struct.unpack("<I", payload[end:end + 4])[0]
+        # genuine seal = crc32(header[0:12] || payload), route bytes skipped
+        crc = zlib.crc32(payload[j:j + 12])
+        crc = zlib.crc32(pl, crc)
+        seal_ok = (crc & 0xFFFFFFFF) == seal
+        yield dict(otype=otype, oseq=oseq, route=route, payload=pl,
+                   seal=seal, seal_ok=seal_ok)
+        i = end + 4
 
 
-def decode_frame(pl: bytes, crc: int) -> bytes:
-    """payload[6:10]=seq(LE), payload[10:]=data XOR crc bytes (LE, repeated)."""
-    cb = (crc & 0xFFFFFFFF).to_bytes(4, "little")
-    enc = pl[10:]
-    return bytes(b ^ cb[k % 4] for k, b in enumerate(enc))
+def parse_inner(pl: bytes):
+    """Parse the NESTED inner frame; return (version, itype, iseq, masked) or None."""
+    k = pl.find(INNER_MAGIC_BYTES)
+    if k < 0 or k + 12 > len(pl):
+        return None
+    magic, ver, itype, iseq = struct.unpack("<IBBI", pl[k:k + 10])
+    if magic != INNER_MAGIC:
+        return None
+    ilen = struct.unpack("<H", pl[k + 10:k + 12])[0]
+    if k + 12 + ilen > len(pl):
+        return None
+    return ver, itype, iseq, pl[k + 12:k + 12 + ilen]
 
 
 def extract_fragments(pcap_path: Path):
+    """Return (frags, stats).
+
+    frags: list of (inner_seq, decoded_bytes) for genuinely-valid fragments.
+    stats: counts of ALL frames parsed vs payloads accepted.  `frames` counts
+           every outer frame parsed (genuine + every decoy), so it is strictly
+           greater than the number of accepted fragments.
+    """
     raw = pcap_path.read_bytes()
     frags = []
     n_pkts = n_payloads = n_frames = 0
     for pkt in iter_pcap_packets(raw):
         n_pkts += 1
-        tp = tcp_payload(pkt)
-        if not tp:
-            continue
-        _src, _dst, payload = tp
+        payload = tcp_payload(pkt)
         if not payload:
             continue
         n_payloads += 1
-        for ftype, fpl, crc, ok in parse_frames(payload):
+        for fr in parse_outer_frames(payload):
             n_frames += 1
-            if not ok or ftype != TYPE_DATA:
+            if not fr["seal_ok"]:            # fails the genuine (subset) seal
                 continue
-            if len(fpl) < 10:
+            if fr["otype"] != OUTER_TYPE_DATA:
                 continue
-            seq = struct.unpack("<I", fpl[6:10])[0]
-            frags.append((seq, decode_frame(fpl, crc)))
+            inner = parse_inner(fr["payload"])
+            if inner is None:
+                continue
+            ver, itype, iseq, masked = inner
+            if ver != INNER_VER or itype != INNER_TYPE_FRAG:
+                continue
+            frags.append((iseq, apply_mask(masked, iseq)))
     return frags, dict(packets=n_pkts, payloads=n_payloads, frames=n_frames)
 
 

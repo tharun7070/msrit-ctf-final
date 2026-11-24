@@ -1,13 +1,13 @@
 # E01 · Lester’s Pager Panic
 
 **Level:** Easy · **Points:** 50 · **Category:** Cryptography  
-**Location:** Lester's Hideout · **Focus:** Custom base-41 encoding + modular filter
+**Location:** Lester's Hideout · **Focus:** Dual modular filter + per-row stream permutation
 
 ## Mission briefing
-Lester's pager dumped a night of dispatch chatter, but only a fraction of it is his. The genuine courier packets never announce themselves — they are the rows whose numbers quietly agree, and even those are written in a private alphabet nobody documented. A stripped decoder was salvaged with the log; reverse it before you trust anything it says.
+Lester's pager dumped a whole night of dispatch chatter and only a sliver of it is his. The genuine courier packets never announce themselves: a real row must satisfy more than one arithmetic secret at once, and the ones that satisfy only one are poisoned. Even the wording is hostile — the payloads use a private alphabet that is then scrambled again, row by row, by a rule the salvaged decoder will not hand you. The drop is also re-ordered under a third, hidden key and padded with a marker you have to notice before you can trust a single byte.
 
 ## Objective
-Isolate the genuine courier rows, order them correctly, and recover the single dispatch message. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
+Recover the single dispatch message. Nothing in the log names the columns, the permutation, or the order. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
 - `dispatch.csv`

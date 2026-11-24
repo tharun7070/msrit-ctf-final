@@ -7,8 +7,8 @@ worker threads, then seals an outbound manifest to out.bin.
 Threading model
 ---------------
 A single FIFO queue feeds 8 worker threads.  The node keeps two
-shared process-wide counters: the number of packets cleared and the running
-ledger of packet tags.  Each worker updates both counters as it clears a
+shared process-wide structures: a per-lane tally of cleared packets and a
+running ledger of cleared lane tags.  Each worker updates both as it clears a
 packet; when every worker has drained the queue the node seals its manifest
 and writes out.bin.
 """
@@ -24,7 +24,8 @@ sys.setswitchinterval(1e-6)
 
 MASK64 = (1 << 64) - 1
 WORKER_THREADS = 8
-SEALED_MANIFEST_B64 = "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"
+SEALED_MANIFEST_B64 = "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"
+NOTES = "FTA{v01d_s3gm3nt_n0t_d15p4tch3d}"
 
 
 def seed_from(acc, n):
@@ -46,24 +47,25 @@ def keystream(seed, length):
 class DispatchNode:
     def __init__(self, packets):
         self.packets = packets
-        self.dispatched = 0
         self.ledger = 0
+        self.lanes = {}
         self.trace = []
         self.queue = queue.Queue()
         for p in packets:
             self.queue.put(p)
 
-    def publish(self, seq, pkt):
+    def publish(self, lane, pkt):
         # depot trace: note the clearance on the shared dispatch log
-        self.trace.append((seq, pkt["id"]))
+        self.trace.append((lane, pkt["id"]))
 
     def clear_packet(self, pkt):
-        # snapshot the node counters, publish the clearance, then commit
-        seq = self.dispatched
+        # snapshot both shared structures, publish the clearance, then commit
+        lane = pkt["lane"]
+        seen = self.lanes.get(lane, 0)
         acc = self.ledger
-        self.publish(seq, pkt)
+        self.publish(lane, pkt)
         self.ledger = (acc + pkt["tag"]) & MASK64
-        self.dispatched = seq + 1
+        self.lanes[lane] = seen + 1
 
     def _worker(self):
         while True:
@@ -81,15 +83,20 @@ class DispatchNode:
         for w in workers:
             w.join()
 
+    def dispatched(self):
+        return sum(self.lanes.values())
+
     def seal(self):
         sealed = base64.b64decode(SEALED_MANIFEST_B64)
-        key = keystream(seed_from(self.ledger, self.dispatched), len(sealed))
+        key = keystream(seed_from(self.ledger, self.dispatched()), len(sealed))
         source = bytes(a ^ b for a, b in zip(sealed, key))
         return {
             "manifest": "DEPOT-DISPATCH-MANIFEST",
-            "dispatched": self.dispatched,
+            "dispatched": self.dispatched(),
             "ledger": self.ledger,
+            "lane_counts": {str(k): self.lanes[k] for k in sorted(self.lanes)},
             "stage2_b64": base64.b64encode(source).decode(),
+            "notes": NOTES,
         }
 
 
@@ -102,7 +109,7 @@ def main():
     blob = base64.b85encode(zlib.compress(json.dumps(manifest).encode()))
     (here / "out.bin").write_bytes(blob)
     print("[depot] dispatched=%d ledger=%d -> out.bin (%d bytes)"
-          % (node.dispatched, node.ledger, len(blob)))
+          % (manifest["dispatched"], manifest["ledger"], len(blob)))
 
 
 if __name__ == "__main__":

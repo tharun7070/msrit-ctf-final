@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getChallenge, getChallengeFiles, getChallengeHints, submitFlag, unlockHint, getHintContent, getMySolves, getMyTeam, getTeamSolves } from '../services/ctfd';
 import { getChallengeMeta, ALL_15_CHALLENGES, LEVEL_COLORS } from '../data/challengeMeta';
 import { useAuth } from '../hooks/useAuth';
-import MissionPassedOverlay from '../components/MissionPassedOverlay';
 import NavBar from '../sections/NavBar';
 
 // Unlocking a hint deducts from the crew's score (enforced server-side by CTFd).
@@ -49,7 +48,6 @@ export default function MissionBriefing() {
   const [submitting, setSubmitting] = useState(false);
   const [submissionResult, setSubmissionResult] = useState(null); // 'correct' | 'incorrect' | 'already_solved'
   const [resultMessage, setResultMessage] = useState('');
-  const [showPassedOverlay, setShowPassedOverlay] = useState(false);
   const [isSolved, setIsSolved] = useState(false);
 
   // Per-mission lockout state (3 wrong attempts -> 120s cooldown)
@@ -222,7 +220,6 @@ export default function MissionBriefing() {
       if (status === 'correct') {
         setSubmissionResult('correct');
         setIsSolved(true);
-        setShowPassedOverlay(true);
         setFlag('');
         setWrongCount(0);
         setLockUntil(0);
@@ -313,15 +310,6 @@ export default function MissionBriefing() {
   return (
     <div className="app-bg min-h-screen text-white pb-20">
       <NavBar />
-
-      {/* MISSION PASSED OVERLAY */}
-      {showPassedOverlay && (
-        <MissionPassedOverlay
-          mission={challenge.name}
-          cash={cashAmount}
-          onClose={() => setShowPassedOverlay(false)}
-        />
-      )}
 
       <main className="max-w-7xl mx-auto pt-28 px-4 sm:px-6 lg:px-8 space-y-8">
         {/* Breadcrumb & Navigation */}
@@ -566,6 +554,12 @@ export default function MissionBriefing() {
               </p>
 
               {/* Status messages */}
+              {submissionResult === 'correct' && (
+                <div className="p-3 bg-green-950/80 border border-green-500/50 text-green-200 text-xs font-mono rounded">
+                  ✓ MISSION PASSED — correct flag. <span className="text-cash font-bold">+${cashAmount}</span> credited to your crew.
+                </div>
+              )}
+
               {submissionResult === 'incorrect' && (
                 <div className="p-3 bg-red-950/80 border border-red-500/50 text-red-200 text-xs font-mono rounded">
                   ✕ {resultMessage}

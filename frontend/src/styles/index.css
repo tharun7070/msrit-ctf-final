@@ -242,12 +242,6 @@ main {
   backdrop-filter: blur(10px);
 }
 
-.cash-display {
-  font-family: "Long", sans-serif;
-  color: #39ff14;
-  text-shadow: 0 0 20px rgba(57,255,20,0.5);
-}
-
 .wanted-star {
   color: #ffd700;
   text-shadow: 0 0 10px rgba(255,215,0,0.6);
@@ -301,32 +295,7 @@ main {
   box-shadow: 0 0 20px rgba(255,110,176,0.3);
 }
 
-/* Mission-passed overlay */
-.mission-passed-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: rgba(0,0,0,0.92);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-.mission-passed-title {
-  font-family: "Long", sans-serif;
-  font-size: clamp(3rem, 10vw, 7rem);
-  text-transform: uppercase;
-  background: linear-gradient(135deg, #39ff14, #00e5ff);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  animation: passedPulse 0.6s ease-out;
-}
-@keyframes passedPulse {
-  from { transform: scale(0.5); opacity: 0; }
-  to   { transform: scale(1);   opacity: 1; }
-}
+/* Mission-failed title */
 .mission-failed-title {
   font-family: "Long", sans-serif;
   font-size: clamp(2rem, 7vw, 5rem);

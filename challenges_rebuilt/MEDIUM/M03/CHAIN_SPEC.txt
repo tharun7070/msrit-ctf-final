@@ -1,5 +1,7 @@
 LSPD AUTOMATED AUDIT BUS -- CHAIN FILE SPECIFICATION
 ====================================================
+(Authoritative. Unofficial desk notes are not part of this specification and
+ have been known to be stale.)
 
 FILE: lspd_auth.log
   One record per line:
@@ -13,52 +15,52 @@ FILE: lspd_auth.log
     data        free-form dispatch note (never contains '|')
     chain_hash  64 lowercase hex chars
 
-CHAIN DEFINITION (KEYED)
+CHAIN DEFINITION (KEYED, BLOCK-DEPENDENT KEY)
   Let content_i = "<seq>|<timestamp>|<event_code>|<data>" (the first four
-  fields). The chain is drawn with HMAC-SHA256 under a secret key:
-      chain_hash_i = HMAC_SHA256( key = SALT,
+  fields). The chain is drawn with HMAC-SHA256 under a per-block key drawn from
+  a salt schedule:
+      salt_1 = the 2-byte (16-bit) bootstrap key; NOT stored anywhere
+      salt_b = SHA256( "LSPD/chain-salt|" + root_{b-1} )[0:2]      for b >= 2
+      chain_hash_i = HMAC_SHA256( key = salt_{block(i)},
                                   msg = chain_hash_{i-1} + content_i )
       chain_hash_0 = "0" * 64          (64 ASCII zeroes, the genesis link)
-  To verify a file, walk it top-to-bottom recomputing each chain_hash from the
-  PRECEDING STORED hash and the current content. A record whose recomputed hash
-  differs from its stored hash has been tampered with.
+  block(i) = floor((i-1) / 100) + 1.
+  Walk the file top-to-bottom recomputing each chain_hash from the PRECEDING
+  STORED hash and the current content. A record whose recomputed hash differs
+  from its stored hash has been tampered with. NOTE that a single recovered key
+  does NOT verify the whole file: each block uses its own salt, chained off the
+  previous block's PUBLISHED root.
 
-  The SALT is a 2-byte (16-bit) value. It is NOT stored anywhere in this file
-  set. Recover it as follows ("roots first"): take the block-1 checkpoint root
-  printed below and brute-force the 65536 candidate salts, recomputing block-1's
-  root for each candidate, and keep the one that matches. No other candidate
-  will match.
+  To bootstrap: take the block-1 root printed below and brute-force the 65536
+  candidate 2-byte salts, recomputing block-1's root for each; keep the match.
 
 BLOCK CHECKPOINTS
-  Records are grouped into fixed blocks of 100. For block b the checkpoint
-  root is
-      root_b = HMAC_SHA256( key = SALT,
+  Records are grouped into fixed blocks of 100. For block b:
+      root_b = HMAC_SHA256( key = salt_b,
                             msg = "block=<b>|" + concatenated block-b contents )
   Block b spans records <seq> in [ 100*(b-1)+1 .. 100*b ]. The
   10 roots are:
 
-  root[ 1]  end_seq=100   digest=b7491062f8dbe8ddb9b5d9ce08e705d274e8491911e5f7eaf768a03b1c7d0229
-  root[ 2]  end_seq=200   digest=63b4fd8f5e205c0006c5f6979c59ca73bbf15a89db1423a848f7524c1fcc88f1
-  root[ 3]  end_seq=300   digest=d753f67425da1dd681f2e65a2d148cdbc3f4d4b623e1360ab3c06f30a23f0793
-  root[ 4]  end_seq=400   digest=a1bffe6b58e53bd806027db84b96753f1c0e73a03fde4be19de8e7bce3618563
-  root[ 5]  end_seq=500   digest=7ba1b1724d19dcb02c954a92e42ab9e4ee2d8063858f91c35c2665219fa087d0
-  root[ 6]  end_seq=600   digest=fd0a719ab57498b4b90ac85ebd0992b00378f13fe379257365f875c042dd7e6d
-  root[ 7]  end_seq=700   digest=b4f1589a4c2ee6d1e09250f75b39ee43f10acc68fd58d4655f874a22c8786573
-  root[ 8]  end_seq=800   digest=0e580846063c26986372eccbe59e0084230a70cf44771cfac6627cb3922cd7b9
-  root[ 9]  end_seq=900   digest=56f023772f5cffec0abb21d8c215973a2ad4216e2c950c970fca8633123fbac7
-  root[10]  end_seq=1000  digest=47c31366647a357759f04b9b3c63c89b95d4fbd5d4366ac0f9e4fdafa2634e23
+  root[ 1]  end_seq=100   digest=8bb463b2e3ebfee2f3c30dd29f1b0aba2547d8c57d1675a1b15a13eb2eb95358
+  root[ 2]  end_seq=200   digest=098c595285377b54c13d3271d529b9725fa6a70d933daef27456aae481c40a4d
+  root[ 3]  end_seq=300   digest=6b96d05eb0c2ba5465a8645e5806458ce07ca32a5199b6b1d6770d538d8d4a1e
+  root[ 4]  end_seq=400   digest=91a2b63b6ca394c6215db3896c669be7f946cd8617f09ee818a306f1601f816f
+  root[ 5]  end_seq=500   digest=df1d0ea602963497653d6338de636f11b28b4d013c7fa0465127d26259e8e53d
+  root[ 6]  end_seq=600   digest=3c0a25009dfa3e22a6ef4ba011ad711835b4559cccf1706cd6d6f2e8e2178eac
+  root[ 7]  end_seq=700   digest=e758004f417b00a4d21b3c63734a2d786ab8467d310b13d71847769ff9b14f4a
+  root[ 8]  end_seq=800   digest=18aad5b4161ddddaae9180010d8de2a09e3c658b296e6283e9b64ffe4bf3840c
+  root[ 9]  end_seq=900   digest=c85e1280637f99928fc1aeb785038f493934ea38ad9e79f20891648f3a82813a
+  root[10]  end_seq=1000  digest=a4006b40cb5bb8cd9a8acaa5de306606c6ae0aca9ee2075ab71502551531de45
 
-  Both the per-record keyed chain AND every block root must agree. A block whose
-  recomputed root differs from the value above is compromised. (Breaking an
-  early block does NOT corrupt a later block's root; each block is rooted
-  independently, so several blocks can be broken at once.)
+  Both the per-record keyed chain AND every block root must agree. (Breaking an
+  early block does NOT corrupt a later block's PUBLISHED root; each block is
+  rooted independently, so several blocks can be broken at once.)
 
 FILE: audit_delta.bin
-  A TRIPLY nested binary patch carrying the ORIGINAL content (the first four
-  fields, i.e. the "<seq>|<timestamp>|<event_code>|<data>" string) of every
-  record that was altered after the chain was sealed. Layout:
+  A sidecar with TWO sealed regions.
 
-      magic            4 bytes, ASCII "AUD2"
+  REGION A -- originals of every altered record, nested FIVE deep.
+      magic            4 bytes, ASCII "AUD4"
       width            1 byte  (columnar-transpose width W = 7)
       record_count     uint16 little-endian
       then record_count records, each:
@@ -66,29 +68,46 @@ FILE: audit_delta.bin
           raw_len      uint32 little-endian  (length of the inner RLE blob)
           blob_len     uint32 little-endian  (length of the stored blob)
           blob         blob_len bytes
+  The content passes through FIVE stages on the way in; undo them in REVERSE.
+  Let R = (int(root_10, 16) mod 7) + 1  (the rotation amount, taken
+  from the LAST checkpoint root above) and let
+  KA = b"AUD4-A|" + <bootstrap salt>.  Keystream bytes are
+  KS = SHA256(key || uint32-le counter 0,1,2,...) concatenated.
+      stage 1  RLE   : content -> run-length blob (below)
+      stage 2  XOR   : rle[i] ^= ((i * 0x5d + 0x1f) mod 256)
+      stage 3  TRNS  : zero-pad to a multiple of W, fill W-column matrix
+                       row-major, emit column-major
+      stage 4  KEY   : b ^= KS(KA)            (same offset)
+      stage 5  ROT   : b = rotate-left(b, R)
+  To decode one record, undo stages 5..1 in that order:
+      a. rotate-right each byte by R.
+      b. XOR the stage-4 keystream (KA) over the blob.
+      c. inverse-transpose with width W -> padded stream; keep raw_len bytes.
+      d. undo the stage-2 index XOR over the first raw_len positions.
+      e. RLE-decode -> original content.
+  Stage 4 is keyed by the bootstrap salt: region A is unreadable until you have
+  recovered salt_1. Undoing fewer/more/out-of-order stages yields garbage.
 
-  The content bytes pass through THREE stages on the way in; undo them in
-  reverse:
-      stage 1  RLE   : content -> run-length encoded blob (see below)
-      stage 2  XOR   : rle[i] ^= ((i * 0x5d + 0x1f) mod 256)  (index-derived)
-      stage 3  TRNS  : the XORed bytes are zero-padded to a multiple of W, laid
-                       into a W-column matrix row-major, and emitted column-major
-  To decode one record:
-      1. inverse-transpose `blob` with width W -> padded stream, keep first
-         raw_len bytes -> the XORed RLE stream.
-      2. undo the stage-2 XOR over the first raw_len positions.
-      3. RLE-decode the result -> the original content.
+  REGION B -- the flag mask, appended after the last region-A record:
+      magic            4 bytes, ASCII "AUDB"
+      mask_len         uint16 little-endian
+      masked           mask_len bytes = MASK ^ KS(KB)
+  KB = b"AUD4-B|" + root_10 + b"|" + <original content of the LAST
+  restored record>  (i.e. the highest-seq record carried in region A). Region B
+  therefore cannot be read until region A has been decoded AND the chain has
+  been repaired.
 
   The custom RLE (stage 1):
       token 0x00 <n> <n bytes>   literal block, <n> is 1..255 raw bytes
-      token <n> <value>          a run of <value> repeated <n> times (n is 3..255)
-  Note 0x00 is reserved for the literal opcode, so run counts are always >= 3.
-  Undoing only one or two stages yields garbage.
+      token <n> <value>          a run of <value> repeated <n> times (n 3..255)
 
-FLAG DERIVATION (cross-field predicate)
-  Consider every record whose event_code ends with the exact class token
-  "_ACCEPT". Classify each such code by the low bit of the first hex nibble of
-  its SHA-256 digest, i.e. class(code) = int(sha256_hex(code)[0], 16) & 1.
-  Walking the file top-to-bottom, build two columns by taking the FIRST
-  character of each code in each class. The flag is the byte-wise XOR of the
-  class-0 column with the class-1 column, in order.
+FLAG DERIVATION (cross-field predicate, then a sealed unwrap)
+  1. Predicate -- consider every record whose event_code ends with the EXACT
+     class token "_ACCEPT". Classify each by the low bit of the first hex
+     nibble of its SHA-256 digest: class(code) = int(sha256_hex(code)[0],16) & 1.
+     Walking the file top-to-bottom, build two columns from the FIRST character
+     of each such code, per class. XOR the class-0 column with the class-1
+     column, byte for byte, to obtain a 33-byte sealed token M.
+  2. Unwrap -- the flag is M XOR (the region-B mask), byte for byte.
+  Codes whose class token merely CONTAINS "ACCEPT" (e.g. a "..._ACCEPTED" or a
+  "..._REACCEPT") are NOT part of the predicate.

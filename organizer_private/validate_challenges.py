@@ -1033,13 +1033,30 @@ def solve_m02():
 # M03 - keyed hash chain + triple-nested delta repair
 # ---------------------------------------------------------------------------
 M03_BLOCK = 100
+M03_W = 7
 M03_XOR_MUL = 0x5D
 M03_XOR_ADD = 0x1F
-M03_DELTA_MAGIC = b"AUD2"
+M03_MAGIC_A = b"AUD4"
+M03_MAGIC_B = b"AUDB"
+M03_DOM_SALT = b"LSPD/chain-salt|"
+M03_DOM_KA = b"AUD4-A|"
+M03_DOM_KB = b"AUD4-B|"
 
 
 def _m03_hmac_hex(key, msg):
     return hmac.new(key, msg, hashlib.sha256).hexdigest()
+
+
+def _m03_keystream(key, n):
+    out, ctr = bytearray(), 0
+    while len(out) < n:
+        out += hashlib.sha256(key + struct.pack("<I", ctr)).digest()
+        ctr += 1
+    return bytes(out[:n])
+
+
+def _m03_rotr(b, r):
+    return ((b >> r) | (b << (8 - r))) & 0xFF
 
 
 def _m03_content(ln):
@@ -1050,22 +1067,50 @@ def _m03_code_class(ec):
     return int(hashlib.sha256(ec.encode()).hexdigest()[0], 16) & 1
 
 
+def _m03_block_msg(b, contents):
+    return (f"block={b}|" + "".join(contents)).encode()
+
+
+def _m03_derive_salt(prev_root):
+    return hashlib.sha256(M03_DOM_SALT + prev_root.encode()).digest()[:2]
+
+
+def _m03_rot_of(root_last):
+    return (int(root_last, 16) % 7) + 1
+
+
 def _m03_recover_salt(lines, root1):
-    msg = (f"block={1}|" + "".join(_m03_content(ln) for ln in lines[:M03_BLOCK])).encode()
+    msg = _m03_block_msg(1, [_m03_content(ln) for ln in lines[:M03_BLOCK]])
     for k in range(1 << 16):
         key = k.to_bytes(2, "big")
         if _m03_hmac_hex(key, msg) == root1:
             return key
-    raise ValueError("M03 salt not recovered")
+    raise ValueError("M03 bootstrap salt not recovered")
 
 
-def _m03_find_breaks(lines, key):
+def _m03_derive_salts(roots, bootstrap):
+    salts = [bootstrap]
+    for b in range(2, len(roots) + 1):
+        salts.append(_m03_derive_salt(roots[b - 2]))
+    return salts
+
+
+def _m03_find_breaks(lines, salts):
     prev, breaks = "0" * 64, []
     for idx, ln in enumerate(lines):
-        if _m03_hmac_hex(key, (prev + _m03_content(ln)).encode()) != ln.split("|")[4]:
+        content = _m03_content(ln)
+        if _m03_hmac_hex(salts[idx // M03_BLOCK], (prev + content).encode()) != ln.split("|")[4]:
             breaks.append(idx)
         prev = ln.split("|")[4]
     return breaks
+
+
+def _m03_recompute_roots(lines, salts):
+    roots = []
+    for b in range(1, len(salts) + 1):
+        chunk = [_m03_content(ln) for ln in lines[(b - 1) * M03_BLOCK:b * M03_BLOCK]]
+        roots.append(_m03_hmac_hex(salts[b - 1], _m03_block_msg(b, chunk)))
+    return roots
 
 
 def _m03_rle_decode(blob):
@@ -1093,21 +1138,49 @@ def _m03_transpose_inv(t, w, n):
     return bytes(padded[:n])
 
 
-def _m03_parse_delta(data):
-    assert data[:4] == M03_DELTA_MAGIC, "bad delta magic"
-    w = data[4]
+def _m03_decode_record(blob, raw_len, r, ka):
+    # undo stage 5 (rotate-right), stage 4 (key XOR), stage 3 (transpose),
+    # stage 2 (index XOR), stage 1 (RLE)
+    x = bytes(_m03_rotr(b, r) for b in blob)
+    x = bytes(b ^ k for b, k in zip(x, _m03_keystream(ka, len(x))))
+    x = _m03_transpose_inv(x, M03_W, raw_len)
+    x = bytes(b ^ ((i * M03_XOR_MUL + M03_XOR_ADD) & 0xFF) for i, b in enumerate(x))
+    return _m03_rle_decode(x).decode()
+
+
+def _m03_parse_region_a(data, bootstrap, root_last):
+    assert data[:4] == M03_MAGIC_A, "bad region-A magic"
+    assert data[4] == M03_W, f"unexpected width {data[4]}"
     count = struct.unpack("<H", data[5:7])[0]
+    r = _m03_rot_of(root_last)
+    ka = M03_DOM_KA + bootstrap
     off, out = 7, {}
     for _ in range(count):
         seq = struct.unpack("<H", data[off:off + 2])[0]
         rlen = struct.unpack("<I", data[off + 2:off + 6])[0]
         blen = struct.unpack("<I", data[off + 6:off + 10])[0]
         blob = data[off + 10:off + 10 + blen]
-        x = _m03_transpose_inv(blob, w, rlen)
-        r = bytes(b ^ ((i * M03_XOR_MUL + M03_XOR_ADD) & 0xFF) for i, b in enumerate(x))
-        out[seq] = _m03_rle_decode(r).decode()
+        out[seq] = _m03_decode_record(blob, rlen, r, ka)
         off += 10 + blen
-    return out
+    return out, off
+
+
+def _m03_parse_region_b(data, off, root_last, last_original):
+    assert data[off:off + 4] == M03_MAGIC_B, "bad region-B magic"
+    blen = struct.unpack("<H", data[off + 4:off + 6])[0]
+    masked = data[off + 6:off + 6 + blen]
+    kb = M03_DOM_KB + root_last.encode() + b"|" + last_original.encode()
+    return bytes(m ^ k for m, k in zip(masked, _m03_keystream(kb, len(masked))))
+
+
+def _m03_predicate_token(lines):
+    evens, odds = [], []
+    for ln in lines:
+        ec = ln.split("|")[2]
+        if ec.endswith("_ACCEPT"):
+            (evens if _m03_code_class(ec) == 0 else odds).append(ec[0])
+    assert len(evens) == len(odds), f"class columns uneven: {len(evens)}/{len(odds)}"
+    return "".join(chr(ord(a) ^ ord(b)) for a, b in zip(evens, odds))
 
 
 def solve_m03():
@@ -1115,25 +1188,31 @@ def solve_m03():
     roots = re.findall(r"digest=([0-9a-f]{64})",
                        (part("M03") / "CHAIN_SPEC.txt").read_text(encoding="utf-8"))
     assert roots, "no checkpoint roots found in CHAIN_SPEC.txt"
-    key = _m03_recover_salt(lines, roots[0])
-    delta = _m03_parse_delta((part("M03") / "audit_delta.bin").read_bytes())
+    bootstrap = _m03_recover_salt(lines, roots[0])
+    salts = _m03_derive_salts(roots, bootstrap)
 
-    breaks = _m03_find_breaks(lines, key)
+    breaks = _m03_find_breaks(lines, salts)
     assert len(breaks) == 3, f"expected 3 forged records, found {len(breaks)}"
-    fixed = list(lines)
-    for idx in breaks:
-        seq, _ts, _ec, _d, h = fixed[idx].split("|")
-        fixed[idx] = f"{delta[int(seq)]}|{h}"
-    assert _m03_find_breaks(fixed, key) == [], "chain still broken after repair"
+    assert len({(i // M03_BLOCK) + 1 for i in breaks}) >= 2, "forgeries confined to one block"
 
-    evens, odds = [], []
-    for ln in fixed:
-        ec = ln.split("|")[2]
-        if ec.endswith("_ACCEPT"):
-            (evens if _m03_code_class(ec) == 0 else odds).append(ec[0])
-    assert len(evens) == len(odds), f"class columns uneven: {len(evens)}/{len(odds)}"
-    flag = "".join(chr(ord(a) ^ ord(b)) for a, b in zip(evens, odds))
-    _record("M03", flag, f"salt-brute keyed chain + repair 3 forgeries in {len(lines)} records")
+    delta = (part("M03") / "audit_delta.bin").read_bytes()
+    originals, off = _m03_parse_region_a(delta, bootstrap, roots[-1])
+    last_original = originals[max(originals)]
+    mask = _m03_parse_region_b(delta, off, roots[-1], last_original)
+
+    fixed = list(lines)
+    for idx, ln in enumerate(lines):
+        seq, _ts, _ec, _d, h = ln.split("|")
+        if int(seq) in originals:
+            fixed[idx] = f"{originals[int(seq)]}|{h}"
+    assert _m03_find_breaks(fixed, salts) == [], "chain still broken after repair"
+    assert _m03_recompute_roots(fixed, salts) == roots, "block roots still broken after repair"
+
+    token = _m03_predicate_token(fixed)
+    assert len(token) == len(mask), (len(token), len(mask))
+    flag = bytes(ord(c) ^ m for c, m in zip(token, mask)).decode()
+    _record("M03", flag,
+            f"salt-schedule keyed chain + repair 3 forgeries in {len(lines)} records + 5-deep delta")
 
 
 # ---------------------------------------------------------------------------
@@ -1144,7 +1223,8 @@ M04_HEADER = ("LSPD EMERGENCY RADIO NET :: BEACON SYNC :: ALL UNITS COPY?"
 M04_REDACT_FROM = 15
 M04_BLOCK = 8
 M04_HDR_MAGIC = b"RDRX"
-M04_HDR_LEN = 12
+M04_HDR_LEN = 16
+M04_T2B = 16
 M04_BEACON = 2
 
 
@@ -1255,7 +1335,9 @@ def _m04_parse_header(pkt):
     _ver, off, burst, bdeg = struct.unpack("<BBBB", pkt[4:8])
     mask = struct.unpack("<I", pkt[8:12])[0]
     taps = [t for t in range(mask.bit_length()) if (mask >> t) & 1]
-    return off, burst, bdeg, taps
+    _mode, xk, _flav = struct.unpack("<BBB", pkt[12:15])
+    crc_ok = ((sum(pkt[:15]) ^ 0xA5) & 0xFF) == pkt[15]
+    return off, burst, bdeg, taps, xk, crc_ok
 
 
 def _m04_lane_counts(n, burst, off):
@@ -1309,7 +1391,7 @@ def _m04_unpermute(data, block=M04_BLOCK):
 
 
 def _m04_recover_mask(sample, packet, n):
-    off, burst, _bdeg, btaps = _m04_parse_header(packet)
+    off, burst, _bdeg, btaps, _xk, _crc = _m04_parse_header(packet)
     exposed = bytes(s ^ h for s, h in zip(sample, M04_HEADER))[:M04_REDACT_FROM]
     lanes = _m04_demux(exposed, burst, off)
     counts = _m04_lane_counts(n, burst, off)
@@ -1324,15 +1406,36 @@ def _m04_recover_mask(sample, packet, n):
     return _m04_assign(n, streams, burst, off)
 
 
+def _m04_wash_stream(n, header):
+    return bytes(header[i % len(header)] for i in range(n))
+
+
+def _m04_unspin(data, span=M04_T2B, k=0):
+    """Inverse of the transmitter's left-rotate of each 16-byte span."""
+    out = bytearray(len(data))
+    for base in range(0, len(data), span):
+        blk = data[base:base + span]
+        m = len(blk)
+        kk = k % m if m else 0
+        out[base:base + m] = (blk[m - kk:] + blk[:m - kk]) if kk else blk
+    return bytes(out)
+
+
 def solve_m04():
     sample = (part("M04") / "keystream_sample.bin").read_bytes()
     packet = (part("M04") / "radio_packet.bin").read_bytes()
+    off, burst, bdeg, taps, xk, crc_ok = _m04_parse_header(packet)
+    assert crc_ok, "sync header checksum mismatch"
     ct = packet[M04_HDR_LEN:]
     mask = _m04_recover_mask(sample, packet, len(ct))
-    plaintext = bytes(p ^ k for p, k in zip(_m04_unpermute(ct), mask))
+    washed = bytes(c ^ w for c, w in zip(ct, _m04_wash_stream(len(ct), packet[:M04_HDR_LEN])))
+    transposed = _m04_unspin(washed, M04_T2B, xk)
+    plaintext = bytes(p ^ k for p, k in zip(_m04_unpermute(transposed), mask))
     mm = re.search(rb"FTA\{[^}]+\}", plaintext)
     assert mm, f"no flag in decoded message: {plaintext!r}"
-    _record("M04", mm.group(0).decode(), "demux 3 lanes (BM x2 + GF(2) solve) + transpose inverse")
+    _record("M04", mm.group(0).decode(),
+            f"3-lane BM/GF(2) mask + WASH/SPIN(key={xk}) + 8B transpose "
+            f"(off={off},burst={burst},deg={bdeg},taps={taps})")
 
 
 # ---------------------------------------------------------------------------
@@ -1342,6 +1445,7 @@ M05_MASK32 = 0xFFFFFFFF
 M05_MASK64 = (1 << 64) - 1
 M05_THIRD_KEY = bytes((0x5A, 0xC3, 0x77, 0x21))
 M05_ROT_SEED = 0x9E3779B9
+M05_MIX_SEED = 0x123456789ABCDEF0
 
 
 def _m05_load_bd():
@@ -1353,84 +1457,76 @@ def _m05_load_bd():
     return m
 
 
-class _M05FixedNode:
-    def __init__(self, packets, workers=8):
-        self.lock = threading.Lock()
-        self.dispatched = 0
-        self.ledger = 0
-        self.lanes = {}
-        self.queue = queue.Queue()
-        for p in packets:
-            self.queue.put(p)
-        self.workers = workers
-
-    def clear_packet(self, pkt):
-        with self.lock:
-            self.ledger = (self.ledger + pkt["tag"]) & M05_MASK64
-            self.lanes[pkt["lane"]] = self.lanes.get(pkt["lane"], 0) + 1
-            self.dispatched += 1
-
-    def _worker(self):
-        while True:
-            try:
-                pkt = self.queue.get_nowait()
-            except queue.Empty:
-                return
-            self.clear_packet(pkt)
-
-    def run(self):
-        ts = [threading.Thread(target=self._worker) for _ in range(self.workers)]
-        [t.start() for t in ts]
-        [t.join() for t in ts]
+def _m05_splitmix64(x):
+    x &= M05_MASK64
+    x = (x + 0x9E3779B97F4A7C15) & M05_MASK64
+    x = ((x ^ (x >> 30)) * 0xBF58476D1CE4E5B9) & M05_MASK64
+    x = ((x ^ (x >> 27)) * 0x94D049BB133111EB) & M05_MASK64
+    return (x ^ (x >> 31)) & M05_MASK64
 
 
-def _m05_build_out(bd, packets):
-    node = _M05FixedNode(packets)
-    node.run()
-    assert node.dispatched == len(packets)
-    assert sum(node.lanes.values()) == len(packets)
-    sealed = base64.b64decode(bd.SEALED_MANIFEST_B64)
-    key = bd.keystream(bd.seed_from(node.ledger, node.dispatched), len(sealed))
-    source = bytes(a ^ b for a, b in zip(sealed, key))
-    manifest = {
-        "manifest": "DEPOT-DISPATCH-MANIFEST",
-        "dispatched": node.dispatched,
-        "ledger": node.ledger,
-        "lane_counts": {str(k): node.lanes[k] for k in sorted(node.lanes)},
-        "stage2_b64": base64.b64encode(source).decode(),
-        "notes": bd.NOTES,
-    }
-    return base64.b85encode(zlib.compress(json.dumps(manifest).encode()))
+def _m05_seal_digest(ledger, mix, dispatched):
+    h = ledger & M05_MASK64
+    h ^= _m05_splitmix64((mix & M05_MASK64) ^ 0xA5A5A5A5A5A5A5A5)
+    h ^= _m05_splitmix64((dispatched & M05_MASK64) ^ 0x5A5A5A5A5A5A5A5A)
+    return _m05_splitmix64(h)
 
 
-def _m05_stage2(tags, sealed, rot_masked=True, rec_buggy=False, align_buggy=False):
-    h = 0x1BADB002
+def _m05_derive_key(ledger, mix, dispatched):
+    return _m05_splitmix64(_m05_seal_digest(ledger, mix, dispatched) ^ 0x0D15A7C4C0DE0000)
+
+
+def _m05_dstream(seed, length):
+    h = seed & M05_MASK32
+    out = bytearray()
+    for _ in range(length):
+        h = (h * 1664525 + 1013904223) & M05_MASK32
+        out.append((h >> 24) & 0xFF)
+    return bytes(out)
+
+
+def _m05_gate(data, key):
+    return bytes(a ^ b for a, b in zip(data, _m05_dstream(key ^ 0x61E7A11, len(data))))
+
+
+def _m05_extra_unwrap(data, key):
+    ks = _m05_dstream(key ^ 0xE47A5EED, len(data))
+    out = bytearray(b ^ k for b, k in zip(data, ks))
+    s = key & 0x7
+    if s:
+        out = out[-s:] + out[:-s]
+    return bytes(out)
+
+
+def _m05_rotl32(x, r, masked=True):
+    if masked:
+        x &= M05_MASK32
+    v = (x << r) | (x >> (32 - r))
+    return v & M05_MASK32 if masked else v
+
+
+def _m05_fold(tags, start, masked=True):
+    h = start
     for t in tags:
         h = (h + t) & M05_MASK32
-        if rot_masked:
-            v = h & M05_MASK32
-            h = ((v << 7) | (v >> 25)) & M05_MASK32
-        else:
-            h = (h << 7) | (h >> 25)
+        h = _m05_rotl32(h, 7, masked)
         h ^= h >> 16
         h = (h * 0x9E3779B9) & M05_MASK32
-    seed = h & M05_MASK32
-    ks = bytearray()
-    for _ in range(len(sealed)):
-        seed = (seed * 1103515245 + 12345) & M05_MASK32
-        ks.append((seed >> 16) & 0xFF)
-    plain = bytes(a ^ b for a, b in zip(sealed, ks))
-    if rec_buggy:
-        n = int.from_bytes(plain[0:2], "little")
-        body = plain[3:3 + n]
-    else:
-        n = int.from_bytes(plain[0:2], "big")
-        body = plain[2:2 + n]
-    span = n + 1 if (align_buggy and (n & 3) == 0) else n
-    trailer = int.from_bytes(plain[2 + span:6 + span], "big")
-    if (sum(body) & 0xFFFF) != trailer:
-        raise ValueError("reconciliation record failed its trailer check")
-    return body
+    return h & M05_MASK32
+
+
+def _m05_ks32(seed, length):
+    h = seed & M05_MASK32
+    out = bytearray()
+    for _ in range(length):
+        h = (h * 1103515245 + 12345) & M05_MASK32
+        out.append((h >> 16) & 0xFF)
+    return bytes(out)
+
+
+def _m05_wrap_decode(payload):
+    x = base64.b64decode(payload)
+    return bytes(b ^ M05_THIRD_KEY[i % 4] for i, b in enumerate(x))
 
 
 def _m05_stage3(data):
@@ -1447,52 +1543,131 @@ def _m05_stage3(data):
     return bytes(fb)
 
 
-def _m05_unwrap(payload):
-    x = base64.b64decode(payload)
-    unwrapped = bytes(b ^ M05_THIRD_KEY[i % 4] for i, b in enumerate(x))
-    return _m05_stage3(unwrapped).decode("ascii")
+class _M05FixedNode:
+    """Repaired depot node: ONE lock guards the whole critical section, so the
+    per-lane tally, the running ledger AND the running mix commit atomically."""
+
+    def __init__(self, packets, workers=8):
+        self.lock = threading.Lock()
+        self.ledger = 0
+        self.mix = M05_MIX_SEED
+        self.lanes = {}
+        self.queue = queue.Queue()
+        for p in packets:
+            self.queue.put(p)
+        self.workers = workers
+
+    def clear_packet(self, pkt):
+        with self.lock:
+            self.ledger = (self.ledger + pkt["tag"]) & M05_MASK64
+            self.mix = (self.mix + _m05_splitmix64(pkt["tag"])) & M05_MASK64
+            self.lanes[pkt["lane"]] = self.lanes.get(pkt["lane"], 0) + 1
+
+    def _worker(self):
+        while True:
+            try:
+                pkt = self.queue.get_nowait()
+            except queue.Empty:
+                return
+            self.clear_packet(pkt)
+
+    def run(self):
+        ts = [threading.Thread(target=self._worker) for _ in range(self.workers)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+
+
+def _m05_correct_triple():
+    packets = json.loads((part("M05") / "dispatch_packets.json").read_text(encoding="utf-8"))
+    node = _M05FixedNode(packets)
+    node.run()
+    assert sum(node.lanes.values()) == len(packets)
+    assert node.ledger == sum(p["tag"] for p in packets) & M05_MASK64
+    m = M05_MIX_SEED
+    for p in packets:
+        m = (m + _m05_splitmix64(p["tag"])) & M05_MASK64
+    assert node.mix == m
+    return node.ledger, node.mix, len(packets)
+
+
+def _m05_unmask_programs(bd):
+    ledger, mix, dispatched = _m05_correct_triple()
+    digest = _m05_seal_digest(ledger, mix, dispatched)
+    s2_raw = base64.b64decode(bd.SEALED_STAGE2_B64)
+    asm_raw = base64.b64decode(bd.SEALED_ASSEMBLE_B64)
+    s2 = bytes(a ^ b for a, b in zip(s2_raw, bd.keystream(digest, len(s2_raw))))
+    asm = bytes(a ^ b for a, b in zip(asm_raw, bd.keystream(digest, len(asm_raw))))
+    return (ledger, mix, dispatched), s2.decode("utf-8"), asm.decode("utf-8")
+
+
+def _m05_stage2_lane(tags, sealed, salt, *, rot_masked=True, rec_buggy=False,
+                     align_buggy=False, start=0x1BADB002):
+    h = _m05_fold(tags, start, rot_masked)
+    plain = bytes(a ^ b for a, b in zip(sealed, _m05_ks32(h ^ salt, len(sealed))))
+    n = (int.from_bytes(plain[0:2], "little") if rec_buggy
+         else int.from_bytes(plain[0:2], "big"))
+    body = plain[3:3 + n] if rec_buggy else plain[2:2 + n]
+    span = n + 1 if (align_buggy and (n & 3) == 0) else n
+    trailer = int.from_bytes(plain[2 + span:6 + span], "big")
+    if (sum(body) & 0xFFFF) != trailer:
+        raise ValueError("reconciliation record failed its trailer check")
+    return body
+
+
+def _m05_assemble_peel(R0, R1, key):
+    dispatch = bytes(a ^ b for a, b in zip(R0, R1))
+    inner = _m05_gate(dispatch, key)
+    wrapped = _m05_extra_unwrap(inner, key)
+    return _m05_stage3(_m05_wrap_decode(wrapped))
 
 
 def solve_m05():
-    import itertools
     bd = _m05_load_bd()
-    packets = json.loads((part("M05") / "dispatch_packets.json").read_text(encoding="utf-8"))
-    blob = _m05_build_out(bd, packets)
-    manifest = json.loads(zlib.decompress(base64.b85decode(blob)))
-    assert manifest["dispatched"] == len(packets)
-    source = base64.b64decode(manifest["stage2_b64"]).decode("utf-8")
+    (ledger, mix, dispatched), s2_src, _asm_src = _m05_unmask_programs(bd)
+    assert "def signature" in s2_src and "def extract_record" in s2_src
 
     ns = {"__name__": "stage2_extracted"}
-    exec(compile(source, "<stage2>", "exec"), ns)
-    tags, sealed = ns["TAGS"], ns["SEALED"]
+    exec(compile(s2_src, "<stage2>", "exec"), ns)
+    tags = ns["TAGS"]
 
-    for rot_masked, rec_buggy, align_buggy in itertools.product((False, True), repeat=3):
-        if (rot_masked, rec_buggy, align_buggy) == (True, False, False):
-            continue
-        try:
-            _m05_stage2(tags, sealed, rot_masked, rec_buggy, align_buggy)
-        except ValueError:
-            continue
-        raise AssertionError(f"stage-2 variant accepted: {(rot_masked, rec_buggy, align_buggy)}")
+    # Correct repair: mask the rotate, big-endian @2, trailer @2+n, and CONTINUE
+    # the signature across the two lanes (bug (d) only bites the second run).
+    h0 = _m05_fold(tags, 0x1BADB002, True)
+    R0 = _m05_stage2_lane(tags, ns["SEALED0"], ns["SALT0"], start=0x1BADB002)
+    R1 = _m05_stage2_lane(tags, ns["SEALED1"], ns["SALT1"], start=h0)
+    key = _m05_derive_key(ledger, mix, dispatched)
 
-    flag = _m05_unwrap(_m05_stage2(tags, sealed, True, False, False))
-    _record("M05", flag, "lock-repaired dispatch + 32-bit overflow stage-2 (3 bugs) + stage-3")
+    # Trap: an un-chained lane 1 (bug (d)) is structurally valid garbage, never
+    # the flag.
+    try:
+        bad = _m05_stage2_lane(tags, ns["SEALED1"], ns["SALT1"], start=0x1BADB002)
+        badflag = _m05_assemble_peel(R0, bad, key)
+    except Exception:
+        badflag = None
+    assert badflag != FL["M05"].encode(), "unchained lane-1 yielded the flag"
+
+    flag = _m05_assemble_peel(R0, R1, key).decode("ascii")
+    _record("M05", flag,
+            f"lock-repaired race triple (ledger/mix/dispatched={dispatched}) + 4-bug "
+            f"reconciler + gate/extra-wrap/stage-3")
 
 
 # ---------------------------------------------------------------------------
-# H01 - stripped ELF: chained CF-flattened VMs + length-brute vault + modular map
+# H01 - stripped ELF: three chained CF-flattened VMs + two-pass vault + 4 gates
 # ---------------------------------------------------------------------------
 H01_MOD = 251
 H01_MAXLEN = 200
+H01_PERM = set(range(256))
 H01_M64 = (1 << 64) - 1
-H01_CFG, H01_XT1, H01_XT2 = b"ZCFG", b"ZXT1", b"ZXT2"
-H01_VM1, H01_VM2, H01_VLT = b"ZVM1", b"ZVM2", b"ZDVL"
+H01_CRC_XOR = 0x13579BDF
+H01_SEED2_MUL = 0x2545F4914F6CDD1D
+H01_CFG, H01_XT1, H01_XT2, H01_XT3 = b"ZCFG", b"ZXT1", b"ZXT2", b"ZXT3"
+H01_VM1, H01_VM2, H01_VM3, H01_VLT = b"ZVM1", b"ZVM2", b"ZVM3", b"ZDVL"
 H01_OFF_SBOX = 4
 H01_OFF_K = H01_OFF_SBOX + 256
-H01_CIPHER_LEN = H01_OFF_K + 2 * H01_MAXLEN + 8
+H01_CIPHER_LEN = H01_OFF_K + 2 * H01_MAXLEN + 16
 (H01_NOP, H01_PUSH, H01_DROP, H01_ADD, H01_SUB, H01_XOR, H01_AND, H01_OR, H01_MUL,
  H01_SHL, H01_SHR, H01_DUP, H01_SWAP, H01_JMP, H01_JZ, H01_JNZ, H01_HALT) = range(17)
-H01_IMM_OPS = {H01_PUSH, H01_SHL, H01_SHR, H01_JMP, H01_JZ, H01_JNZ}
 
 
 def _wsl_path(p):
@@ -1507,9 +1682,9 @@ def _h01_splitmix64(z):
     return (z ^ (z >> 31)) & H01_M64
 
 
-def _h01_derive_seed(c, length, env, v1, v2):
+def _h01_derive_seed(c, length, env, v1, v2, v3):
     s = (c ^ ((length * 0x9E3779B97F4A7C15) & H01_M64) ^ ((env << 33) & H01_M64)
-         ^ ((v1 << 7) & H01_M64) ^ v2) & H01_M64
+         ^ ((v1 << 7) & H01_M64) ^ v2 ^ ((v3 << 17) & H01_M64)) & H01_M64
     return _h01_splitmix64(s)
 
 
@@ -1541,6 +1716,36 @@ def _h01_hmix(b, seed):
         h = (h * 16777619) & 0xFFFFFFFF
         h = (h ^ (h >> 15)) & 0xFFFFFFFF
         h = (h * 2246822519) & 0xFFFFFFFF
+    return h
+
+
+def _h01_seed2_of(seed, v3):
+    return _h01_splitmix64((seed ^ ((v3 * H01_SEED2_MUL) & H01_M64)
+                            ^ 0x9E3779B97F4A7C15) & H01_M64)
+
+
+def _h01_decrypt_vault(cipher, seed, v3):
+    a = _h01_keystream(seed, len(cipher))
+    b = _h01_keystream(_h01_seed2_of(seed, v3), len(cipher))
+    return bytes(c ^ x ^ y for c, x, y in zip(cipher, a, b))
+
+
+def _h01_gate_crc(b, salt):
+    h = salt & 0xFFFFFFFF
+    for x in b:
+        h = (h ^ x) & 0xFFFFFFFF
+        for _ in range(8):
+            h = ((h >> 1) ^ 0xEDB88320) if (h & 1) else (h >> 1)
+            h &= 0xFFFFFFFF
+    return h
+
+
+def _h01_gate_pos(b, seed):
+    h = (seed ^ (seed >> 29)) & 0xFFFFFFFF
+    for i, x in enumerate(b):
+        h = (h + x + i) & 0xFFFFFFFF
+        h = ((h << 5) | (h >> 27)) & 0xFFFFFFFF
+        h = (h ^ ((x * 0x9E3779B1) & 0xFFFFFFFF)) & 0xFFFFFFFF
     return h
 
 
@@ -1598,18 +1803,6 @@ def _h01_vm_run(code, xlat):
             return 0xDEADBEEF
 
 
-def _h01_prog_len(code, xlat, cap=4096):
-    ip = 0
-    while ip < cap and ip < len(code) + 1:
-        op = xlat[code[ip]]
-        ip += 1
-        if op == H01_HALT:
-            return ip
-        if op in H01_IMM_OPS:
-            ip += 1
-    raise AssertionError("VM program did not terminate with HALT")
-
-
 def _h01_find_magic(data, magic):
     hits, start = [], 0
     while True:
@@ -1622,36 +1815,57 @@ def _h01_find_magic(data, magic):
     return hits[0]
 
 
-def solve_h01():
-    gate = part("H01") / "zancudo_gate"
-    data = gate.read_bytes()
+def _h01_parse_blobs(data):
     pc = _h01_find_magic(data, H01_CFG)
     cfg_c = int.from_bytes(data[pc + 4:pc + 8], "little")
     vm_ctx = int.from_bytes(data[pc + 8:pc + 12], "little")
     env_def = int.from_bytes(data[pc + 12:pc + 16], "little")
-    px1, px2 = _h01_find_magic(data, H01_XT1), _h01_find_magic(data, H01_XT2)
-    xlat1, xlat2 = data[px1 + 4:px1 + 260], data[px2 + 4:px2 + 260]
-    pv1, pv2, pvl = (_h01_find_magic(data, H01_VM1), _h01_find_magic(data, H01_VM2),
-                     _h01_find_magic(data, H01_VLT))
-    vm1 = data[pv1 + 4:pv1 + 4 + _h01_prog_len(data[pv1 + 4:], xlat1)]
+    vm_ctx3 = int.from_bytes(data[pc + 16:pc + 20], "little")
+    xlats = [data[_h01_find_magic(data, m) + 4:][:256]
+             for m in (H01_XT1, H01_XT2, H01_XT3)]
+    assert all(len(x) == 256 for x in xlats)
+
+    def payload(p):
+        ln = int.from_bytes(data[p + 4:p + 6], "little")
+        return data[p + 6:p + 6 + ln]
+
+    vm1 = payload(_h01_find_magic(data, H01_VM1))
+    vm2_stored = payload(_h01_find_magic(data, H01_VM2))
+    vm3_stored = payload(_h01_find_magic(data, H01_VM3))
+    pvl = _h01_find_magic(data, H01_VLT)
     cipher = data[pvl + 4:pvl + 4 + H01_CIPHER_LEN]
     assert len(cipher) == H01_CIPHER_LEN
+    return (cfg_c, vm_ctx, env_def, vm_ctx3, xlats, vm1, vm2_stored, vm3_stored, cipher)
 
-    # chained CF-flattened VMs: VM1 unmasks VM2 whose result gates the vault key
+
+def _h01_unmask(stored, base):
+    return bytes(stored[i] ^ ((base >> (8 * (i & 3))) & 0xFF) for i in range(len(stored)))
+
+
+def _h01_run_vms(vm_ctx, vm_ctx3, xlats, vm1, vm2_stored, vm3_stored):
+    xlat1, xlat2, xlat3 = xlats
     v1 = _h01_vm_run(vm1, xlat1)
-    mz = v1 ^ 0x9E3779B9
-    win = bytes(data[pv2 + 4 + i] ^ ((mz >> (8 * (i & 3))) & 0xFF)
-                for i in range(min(len(data) - (pv2 + 4), 256)))
-    vm2 = win[:_h01_prog_len(win, xlat2)]
-    v2 = _h01_vm_run(vm2, xlat2)
-    assert v2 == vm_ctx, f"chained-VM integrity mismatch ({v2:#010x} != {vm_ctx:#010x})"
+    v2 = _h01_vm_run(_h01_unmask(vm2_stored, v1 ^ 0x9E3779B9), xlat2)
+    assert v2 == vm_ctx, f"chained-VM2 integrity mismatch ({v2:#010x} != {vm_ctx:#010x})"
+    v3 = _h01_vm_run(_h01_unmask(vm3_stored, v2 ^ 0x85EBCA6B), xlat3)
+    assert v3 == vm_ctx3, f"chained-VM3 integrity mismatch ({v3:#010x} != {vm_ctx3:#010x})"
+    return v1, v2, v3
 
-    # brute-force the vault key by passphrase length
+
+def solve_h01():
+    gate = part("H01") / "zancudo_gate"
+    data = gate.read_bytes()
+    (cfg_c, vm_ctx, env_def, vm_ctx3, xlats, vm1, vm2_stored, vm3_stored,
+     cipher) = _h01_parse_blobs(data)
+    v1, v2, v3 = _h01_run_vms(vm_ctx, vm_ctx3, xlats, vm1, vm2_stored, vm3_stored)
+
+    # brute-force the vault key by passphrase length (two-pass decryption)
     cands = []
     for ltry in range(1, H01_MAXLEN + 1):
-        seed = _h01_derive_seed(cfg_c, ltry, env_def, v1, v2)
-        dec = bytes(c ^ q for c, q in zip(cipher, _h01_keystream(seed, H01_CIPHER_LEN)))
-        if int.from_bytes(dec[:4], "little") == ltry and set(dec[H01_OFF_SBOX:H01_OFF_SBOX + 256]) == set(range(256)):
+        seed = _h01_derive_seed(cfg_c, ltry, env_def, v1, v2, v3)
+        dec = _h01_decrypt_vault(cipher, seed, v3)
+        if (int.from_bytes(dec[:4], "little") == ltry
+                and set(dec[H01_OFF_SBOX:H01_OFF_SBOX + 256]) == H01_PERM):
             cands.append((ltry, seed, dec))
     assert len(cands) == 1, f"length brute-force not unique ({len(cands)} hits)"
     need, seed, dec = cands[0]
@@ -1661,6 +1875,8 @@ def solve_h01():
     target = list(dec[H01_OFF_K + need:H01_OFF_K + 2 * need])
     cs_stored = int.from_bytes(dec[H01_OFF_K + 2 * need:H01_OFF_K + 2 * need + 4], "little")
     hx_stored = int.from_bytes(dec[H01_OFF_K + 2 * need + 4:H01_OFF_K + 2 * need + 8], "little")
+    cr_stored = int.from_bytes(dec[H01_OFF_K + 2 * need + 8:H01_OFF_K + 2 * need + 12], "little")
+    ps_stored = int.from_bytes(dec[H01_OFF_K + 2 * need + 12:H01_OFF_K + 2 * need + 16], "little")
     preimage = {}
     for b, s in enumerate(sbox):
         r = s % H01_MOD
@@ -1673,6 +1889,9 @@ def solve_h01():
         out.append(b)
     assert _h01_fnv1a(out) == cs_stored, "FNV-1a checksum gate disagrees"
     assert _h01_hmix(out, seed) == hx_stored, "mixing gate disagrees"
+    assert _h01_gate_crc(out, (v3 ^ H01_CRC_XOR) & 0xFFFFFFFF) == cr_stored, \
+        "CRC-style gate disagrees"
+    assert _h01_gate_pos(out, seed) == ps_stored, "rotate/xor gate disagrees"
     flag = out.decode()
 
     try:
@@ -1680,15 +1899,17 @@ def solve_h01():
     except OSError:
         pass
     run = subprocess.run(["wsl.exe", "-e", "bash", "-lc",
-                          f"env -u ZANCUDO_ENTROPY '{_wsl_path(gate)}' '{flag}'"],
+                          f"env -u ZANCUDO_ENTROPY -u ZANCUDO_SERVICE "
+                          f"'{_wsl_path(gate)}' '{flag}'"],
                          capture_output=True, text=True)
     assert "ZANCUDO DEADBOLT RELEASED" in run.stdout and run.returncode == 0, \
         (run.returncode, run.stdout, run.stderr)
-    _record("H01", flag, f"chained VM1->VM2 vault (len={need}) + FNV/HMAC gates + live gate exec")
+    _record("H01", flag,
+            f"3 chained VMs -> two-pass vault (len={need}) + FNV/mix/CRC/pos + live exec")
 
 
 # ---------------------------------------------------------------------------
-# H02 - weighted freeway: induced subgraph iso + weighted-Laplacian fingerprint
+# H02 - weighted freeway: subgraph iso + norm-Laplacian spectrum + spanning-tree tau
 # ---------------------------------------------------------------------------
 def _h02_weighted_adj(nodes, G):
     idx = {n: i for i, n in enumerate(nodes)}
@@ -1709,14 +1930,28 @@ def _h02_fingerprint(nodes, G):
     return tuple(round(float(x), 4) + 0.0 for x in np.linalg.eigvalsh(Ln))
 
 
-def _h02_centrality_order(nodes, G):
+def _h02_spanning_tau(nodes, G):
+    A = _h02_weighted_adj(nodes, G)
+    lap = np.diag(A.sum(axis=1)) - A
+    return int(round(float(np.linalg.det(lap[:-1, :-1]))))
+
+
+def _h02_combined_order(nodes, G):
     A = _h02_weighted_adj(nodes, G)
     _, vecs = np.linalg.eigh(A)
-    v = vecs[:, -1]
-    if v.sum() < 0:
-        v = -v
-    sc = {n: float(v[i]) for i, n in enumerate(nodes)}
-    return sorted(nodes, key=lambda n: -sc[n])
+    c = vecs[:, -1]
+    if c.sum() < 0:
+        c = -c
+    d = A.sum(axis=1)
+    dinv = 1.0 / np.sqrt(d)
+    Ln = np.eye(len(nodes)) - np.diag(dinv) @ A @ np.diag(dinv)
+    _, vecs2 = np.linalg.eigh(Ln)
+    f = vecs2[:, 1]
+    if f[np.argmax(np.abs(f))] < 0:
+        f = -f
+    key = {n: (-round(float(c[i]), 4), round(float(f[i]), 6))
+           for i, n in enumerate(nodes)}
+    return sorted(nodes, key=lambda n: key[n])
 
 
 def solve_h02():
@@ -1733,26 +1968,32 @@ def solve_h02():
         J.add_edge(u, v, weight=w)
 
     tpl_fp = _h02_fingerprint(list(T.nodes()), T)
+    tpl_tau = _h02_spanning_tau(list(T.nodes()), T)
     winners = []
     for m in GraphMatcher(J, T).subgraph_monomorphisms_iter():
         cand = list(m.keys())
-        if _h02_fingerprint(cand, J.subgraph(cand)) == tpl_fp:
+        if (_h02_fingerprint(cand, J.subgraph(cand)) == tpl_fp
+                and _h02_spanning_tau(cand, J.subgraph(cand)) == tpl_tau):
             winners.append(cand)
-    assert len(winners) == 1, f"expected a unique weighted district, got {len(winners)}"
+    assert len(winners) == 1, f"expected a unique invariant-B district, got {len(winners)}"
     matched = sorted(winners[0])
-    order = _h02_centrality_order(matched, J.subgraph(matched))
+    order = _h02_combined_order(matched, J.subgraph(matched))
     flag = "FTA{" + "".join(J.nodes[n]["label"] for n in order) + "}"
-    _record("H02", flag, f"weighted-Laplacian fingerprint over {J.number_of_nodes()}-node graph")
+    _record("H02", flag,
+            f"spectrum + spanning-tree tau over {J.number_of_nodes()}-node weighted freeway")
 
 
 # ---------------------------------------------------------------------------
-# H03 - seven-shell matryoshka (gated LSB -> GPS/PBKDF2+AES-CTR -> ZIP vault ->
-#       AES-GCM -> MTX-1 matrix -> Huffman -> exec)
+# H03 - nine-shell matryoshka (geogate mask -> masked LSB -> AES-CTR -> ZIP vault
+#       -> AES-GCM(AAD) -> MTX-81 -> Huffman -> route-keyed CTR -> exec)
 # ---------------------------------------------------------------------------
-H03_W, H03_H, H03_N = 200, 160, 41
+H03_W, H03_H = 200, 160
+H03_MATRIX_N = 81
 H03_TSIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1}
+H03_SALT_GATE = b"impound-geogate-7"
 H03_SALT_CTR = b"lspd-impound-2026"
 H03_SALT_GCM = b"evac-vault-7731"
+H03_SALT_STAGE = b"matryoshka-seal"
 H03_ITER = 100000
 H03_VAULT_OPEN = b"--#VAULT-BEGIN--#\n"
 H03_VAULT_CLOSE = b"\n--#VAULT-END--#\n"
@@ -1804,24 +2045,6 @@ def _h03_gating(freqs):
     return stride, t % stride
 
 
-def _h03_extract_payload(stride, offset):
-    px = Image.open(part("H03") / "impound_camera.png").convert("RGB").load()
-    bits, slot = [], 0
-    for x in range(H03_W):
-        for y in range(H03_H):
-            for c in px[x, y]:
-                if slot % stride == offset:
-                    bits.append((c >> 1) & 1)
-                    bits.append(c & 1)
-                slot += 1
-    data = bytearray()
-    for i in range(0, (len(bits) // 8) * 8, 8):
-        data.append(int("".join(str(b) for b in bits[i:i + 8]), 2))
-    n = int.from_bytes(data[:4], "big")
-    payload = bytes(data[4:4 + n])
-    return payload[:16], payload[16:]
-
-
 def _h03_read_gps():
     raw = Image.open(part("H03") / "impound_camera.png").info.get("exif")
     assert raw and raw[:6] == b"Exif\x00\x00", "no EXIF in PNG"
@@ -1853,54 +2076,98 @@ def _h03_read_gps():
         d = payload(gps[tag])
         return [struct.unpack("<II", d[k * 8:k * 8 + 8]) for k in range(count)]
 
-    lat, lon = rationals(0x0002), rationals(0x0004)
-    payload(gps[0x0001]); payload(gps[0x0003])   # lat/lon refs (unused)
-    return lat, lon
+    def ref(tag):
+        return payload(gps[tag]).split(b"\x00", 1)[0].decode()
+
+    return rationals(0x0002), ref(0x0001), rationals(0x0004), ref(0x0003)
 
 
 def _h03_gps_code(lat, lon):
     def dec(dms):
         return dms[0][0] + dms[1][0] / 60 + (dms[2][0] / dms[2][1]) / 3600
-    return f"{round(abs(dec(lat)) * 10000) % 100000:05d}{round(abs(dec(lon)) * 10000) % 100000:05d}"
+    a = round(abs(dec(lat)) * 10000) % 100000
+    b = round(abs(dec(lon)) * 10000) % 100000
+    return f"{a:05d}{b:05d}"
 
 
-def _h03_ctr_decrypt(blob, pwd):
-    key = PBKDF2(pwd.encode(), H03_SALT_CTR, dkLen=32, count=H03_ITER, hmac_hash_module=SHA256)
+def _h03_read_gate_card():
+    im = Image.open(part("H03") / "impound_camera.png")
+    gate_hex = None
+    for bag in (getattr(im, "text", None), im.info):
+        if bag and "gate.card" in bag:
+            gate_hex = bag["gate.card"]
+            break
+    assert gate_hex is not None, "gate.card chunk missing"
+    blob = bytes.fromhex(gate_hex)
+    return blob[:16], blob[16:]
+
+
+def _h03_gate_mask(gate_blob, code):
+    nonce, ct = gate_blob
+    key = PBKDF2(("GEO-" + code).encode(), H03_SALT_GATE, dkLen=32,
+                 count=H03_ITER, hmac_hash_module=SHA256)
+    return AES.new(key, AES.MODE_CTR, nonce=b"",
+                   initial_value=int.from_bytes(nonce, "big")).decrypt(ct)
+
+
+def _h03_extract_payload(stride, offset, mask):
+    px = Image.open(part("H03") / "impound_camera.png").convert("RGB").load()
+    bits, slot = [], 0
+    for x in range(H03_W):
+        for y in range(H03_H):
+            for c in px[x, y]:
+                if slot % stride == offset:
+                    bits.append((c >> 1) & 1)
+                    bits.append(c & 1)
+                slot += 1
+    data = bytearray()
+    for i in range(0, (len(bits) // 8) * 8, 8):
+        data.append(int("".join(str(b) for b in bits[i:i + 8]), 2))
+    n = int.from_bytes(data[:4], "big")
+    masked = bytes(data[4:4 + n])
+    payload = bytes(b ^ mask[i % 16] for i, b in enumerate(masked))
+    return payload[:16], payload[16:]
+
+
+def _h03_ctr_decrypt(blob, pwd, salt):
+    key = PBKDF2(pwd.encode(), salt, dkLen=32, count=H03_ITER, hmac_hash_module=SHA256)
     nonce, ct = blob[:16], blob[16:]
     return AES.new(key, AES.MODE_CTR, nonce=b"",
                    initial_value=int.from_bytes(nonce, "big")).decrypt(ct)
 
 
-def _h03_read_vault(badge):
+def _h03_read_zip_block(password):
     data = (part("H03") / "impound_camera.png").read_bytes()
     z0 = data.index(H03_VAULT_OPEN) + len(H03_VAULT_OPEN)
     z1 = data.index(H03_VAULT_CLOSE, z0)
     zf = zipfile.ZipFile(io.BytesIO(data[z0:z1]))
-    zf.setpassword(badge.encode())
-    return zf.read("layer4.bin")
+    zf.setpassword(password.encode())
+    return zf
 
 
-def _h03_gcm_decrypt(blob, badge, code, tag):
+def _h03_gcm_decrypt(blob, badge, code, tag, mask):
     key = PBKDF2((badge + ":" + code).encode(), H03_SALT_GCM,
                  dkLen=32, count=H03_ITER, hmac_hash_module=SHA256)
     nonce = SHA256.new(b"gcm" + tag).digest()[:12]
-    return AES.new(key, AES.MODE_GCM, nonce=nonce).decrypt_and_verify(blob[:-16], blob[-16:])
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    cipher.update(mask)
+    return cipher.decrypt_and_verify(blob[:-16], blob[-16:])
 
 
 def _h03_decode_matrix(png_bytes):
     arr = np.array(Image.open(io.BytesIO(png_bytes)).convert("L"))
     ys, xs = np.where(arr < 128)
     content = arr[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-    m = content.shape[0] // H03_N
-    grid = np.zeros((H03_N, H03_N), dtype=int)
-    for gy in range(H03_N):
-        for gx in range(H03_N):
+    m = content.shape[0] // H03_MATRIX_N
+    grid = np.zeros((H03_MATRIX_N, H03_MATRIX_N), dtype=int)
+    for gy in range(H03_MATRIX_N):
+        for gx in range(H03_MATRIX_N):
             grid[gy, gx] = 1 if content[int((gy + 0.5) * m), int((gx + 0.5) * m)] < 128 else 0
     for k in range(4):
         g = np.rot90(grid, k)
         if all(g[0, i] == (1 if i % 2 == 0 else 0) and g[i, 0] == (1 if i % 2 == 0 else 0)
-               for i in range(H03_N)):
-            bits = [int(g[y, x]) for y in range(1, H03_N) for x in range(1, H03_N)]
+               for i in range(H03_MATRIX_N)):
+            bits = [int(g[y, x]) for y in range(1, H03_MATRIX_N) for x in range(1, H03_MATRIX_N)]
             d = bytearray()
             for i in range(0, (len(bits) // 8) * 8, 8):
                 d.append(int("".join(str(x) for x in bits[i:i + 8]), 2))
@@ -1924,31 +2191,63 @@ def _h03_huffman_decode(stream, codes):
     return "".join(out)
 
 
-def solve_h03():
+def _h03_walk_to_stage():
     freqs = _h03_parse_freq()
     codes = _h03_build_codes(freqs)
     stride, offset = _h03_gating(freqs)
 
-    tag, ctr_blob = _h03_extract_payload(stride, offset)
-    lat, lon = _h03_read_gps()
+    # S1: GPS -> CODE -> gate card -> MASK
+    lat, _latref, lon, _lonref = _h03_read_gps()
     code = _h03_gps_code(lat, lon)
-    badge = _h03_ctr_decrypt(ctr_blob, "IMPOUND-" + code).decode("ascii")
+    mask = _h03_gate_mask(_h03_read_gate_card(), code)
+    assert len(mask) == 16, "gate mask wrong size"
+
+    # S2: gated + masked LSB -> TAG, CTR_BLOB
+    tag, ctr_blob = _h03_extract_payload(stride, offset, mask)
+
+    # S3: AES-256-CTR -> BADGE
+    badge = _h03_ctr_decrypt(ctr_blob, "IMPOUND-" + code, H03_SALT_CTR).decode("ascii")
     assert badge, "empty badge"
 
-    gcm_blob = _h03_read_vault(badge)
-    matrix_png = _h03_gcm_decrypt(gcm_blob, badge, code, tag)
-    assert matrix_png[:8] == b"\x89PNG\r\n\x1a\n", "shell4 plaintext is not a PNG"
+    # S4: password-gated ZIP vault -> GCM blob
+    gcm_blob = _h03_read_zip_block(badge).read("layer4.bin")
 
-    token = _h03_decode_matrix(matrix_png)
-    stream = base64.urlsafe_b64decode(token)
-    src = _h03_huffman_decode(stream, codes)
+    # S5: AES-256-GCM (AAD = mask) -> matrix PNG
+    matrix_png = _h03_gcm_decrypt(gcm_blob, badge, code, tag, mask)
+    assert matrix_png[:8] == b"\x89PNG\r\n\x1a\n", "shell5 plaintext is not a PNG"
 
+    # S6: MTX-81 matrix -> ROUTE_KEY | base64url(STREAM)
+    combined = _h03_decode_matrix(matrix_png)
+    route_key, b64stream = combined.split("|", 1)
+    assert re.fullmatch(r"[A-Za-z0-9_\-]+", route_key), f"route key shape off: {route_key!r}"
+    stream = base64.urlsafe_b64decode(b64stream)
+
+    # S7: Huffman -> SEAL_TOKEN | base64(SEALED_SOURCE)
+    seal_token, b64sealed = _h03_huffman_decode(stream, codes).split("|", 1)
+    sealed = base64.b64decode(b64sealed)
+
+    # S8: AES-256-CTR (key from ROUTE_KEY) -> Python source
+    src = _h03_ctr_decrypt(sealed, route_key, H03_SALT_STAGE).decode("utf-8")
+    assert "hashlib" in src, "shell8 plaintext is not the expected stage"
+    return src, seal_token
+
+
+def solve_h03():
+    src, seal_token = _h03_walk_to_stage()
+
+    # S9: execute the recovered stage with the SEAL token as argv[1]
     import contextlib
     buf = io.StringIO()
-    with contextlib.redirect_stdout(buf):
-        exec(src, {})
+    old_argv = sys.argv
+    sys.argv = ["stage.py", seal_token]
+    try:
+        with contextlib.redirect_stdout(buf):
+            exec(src, {})
+    finally:
+        sys.argv = old_argv
     flag = re.search(r"FTA\{[a-z0-9_]+\}", buf.getvalue()).group(0)
-    _record("H03", flag, "7 shells: LSB/GPS->CTR->ZIP->GCM->MTX->Huffman->exec")
+    _record("H03", flag,
+            "9 shells: geogate mask -> LSB -> CTR -> ZIP -> GCM(AAD) -> MTX-81 -> Huffman -> CTR -> exec")
 
 
 # ---------------------------------------------------------------------------

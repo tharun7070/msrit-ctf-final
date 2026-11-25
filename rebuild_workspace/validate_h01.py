@@ -2,11 +2,15 @@
 """H01 "Zancudo Deadbolt" -- validation harness (organizer).
 
 Checks, end to end:
-  1. ``gen_h01.py`` builds the stripped ELF (and the participant OPERATIONS.txt).
+  1. ``gen_h01.py`` builds the stripped ELF (and the participant files).
   2. ``solve_h01.py`` recovers the passphrase and prints PASS.
   3. the live gate accepts the correct passphrase (success banner, exit 0).
   4. the live gate rejects a set of near-miss / wrong passphrases.
-  5. the plaintext flag appears in no participant file (raw bytes + ``strings``).
+  5. TRAP 1: a debugger-named parent trips the anti-analysis gates -> the fake
+     success path prints a well-formed DECOY flag, never the real one.
+  6. TRAP 2: the ``ZANCUDO_SERVICE`` dead-end prints a garbage schedule dump and
+     a DECOY flag, never the real one.
+  7. the plaintext flag appears in no participant file (raw bytes + ``strings``).
 """
 import subprocess
 import sys
@@ -20,6 +24,8 @@ OUT = L.out_dir("H01")
 GATE = OUT / "zancudo_gate"
 FLAG = L.FLAGS["H01"]
 BANNER = "ZANCUDO DEADBOLT RELEASED"
+DECOY1 = "FTA{z4nclud0_d34db0lt_r3l34s3}"          # fake-success path (trap 1)
+DECOY2 = "FTA{z4nclud0_s3rv1c3_schedul3_dump}"     # service dead-end (trap 2)
 
 
 def wsl_path(p) -> str:
@@ -38,7 +44,16 @@ def run_gate(arg: str):
         capture_output=True, text=True)
 
 
+def run_bash(cmd: str):
+    return subprocess.run(["wsl.exe", "-e", "bash", "-lc", cmd],
+                          capture_output=True, text=True)
+
+
 def main():
+    # 0. decoys must be well-formed and distinct from the real flag
+    for dec in (DECOY1, DECOY2):
+        assert dec.startswith("FTA{") and dec.endswith("}") and dec != FLAG
+
     # 1. build
     b = run_py("gen_h01.py")
     assert b.returncode == 0 and "BUILD_OK" in b.stdout, b.stdout + b.stderr
@@ -60,6 +75,8 @@ def main():
         "FTA{wrong_passphrase_0000000000}",
         FLAG[:-1] + "x",                    # same length, last byte flipped
         FLAG.replace("unl0ck", "un10ck"),   # single-character mutation
+        DECOY1,                             # the fake-success decoy must NOT be accepted
+        DECOY2,                             # the service decoy must NOT be accepted
         "zancudo",
     ]
     for w in wrongs:
@@ -67,7 +84,22 @@ def main():
         assert r.returncode != 0 and BANNER not in r.stdout, (w, r.returncode, r.stdout)
     print(f"[H01] wrong passphrases rejected ({len(wrongs)})")
 
-    # 5. no plaintext flag in participant artifacts
+    # 5. TRAP 1: debugger-named parent -> fake success prints a decoy flag
+    trap1 = run_bash(f"exec -a gdb bash -c '{wsl_path(GATE)} {FLAG}; exit 0'")
+    assert DECOY1 in trap1.stdout, ("trap1 decoy missing", trap1.returncode, trap1.stdout)
+    assert FLAG not in trap1.stdout, ("REAL FLAG leaked on fake path", trap1.stdout)
+    assert trap1.returncode == 0, ("fake path should exit 0", trap1.returncode)
+    print("[H01] trap1 OK: debugger-parent -> fake success prints decoy flag")
+
+    # 6. TRAP 2: ZANCUDO_SERVICE dead-end -> garbage schedule + decoy flag
+    trap2 = run_bash(
+        f"ZANCUDO_SERVICE=1 '{wsl_path(GATE)}' AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+    assert "key-schedule dump" in trap2.stdout, ("service dump missing", trap2.stdout)
+    assert DECOY2 in trap2.stdout, ("trap2 decoy missing", trap2.stdout)
+    assert FLAG not in trap2.stdout, ("REAL FLAG leaked on service path", trap2.stdout)
+    print("[H01] trap2 OK: service dead-end -> garbage schedule + decoy flag")
+
+    # 7. no plaintext flag in participant artifacts
     for f in sorted(OUT.iterdir()):
         if f.is_file():
             assert FLAG.encode() not in f.read_bytes(), f"flag leaked in {f.name}"
@@ -78,7 +110,8 @@ def main():
     assert st.stdout.strip() == "0", st.stdout
     print("[H01] strings: no plaintext flag in ELF (0 FTA hits)")
 
-    print("[H01] VALIDATE OK")
+    print("[H01] VALIDATE OK (traps: fake-success-decoy, service-dead-end, "
+          "engineer-note-canary)")
 
 
 if __name__ == "__main__":

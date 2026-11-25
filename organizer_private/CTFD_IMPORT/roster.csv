@@ -1,0 +1,19 @@
+# FLAG THEFT AUTO — crew roster template
+# Format: team_name,member1[,member2][,member3]
+#
+#  • First column  = team name shown in CTFd (max ~40 chars; spaces OK)
+#  • Columns 2–4   = member display names (1 required, 2–3 optional; max 3 per crew)
+#  • Lines starting with '#' are ignored by provision_teams.py
+#  • Header row is auto-detected if first cell is 'team', 'team_name', or 'crew'
+#  • Run with: python provision_teams.py --roster roster.csv [--apply] [--allow-http]
+#
+# Generated credentials are written to ../team_credentials.csv (gitignored).
+# NEVER commit team_credentials.csv — share it with crew captains privately.
+#
+team_name,member1,member2,member3
+Los Santos Hackers,alice,bob,carol
+Binary Bandits,dave,eve,frank
+Packet Racers,grace,heidi,ivan
+Stack Smashers,judy,mallory,
+Shellcode Cartel,niaj,,
+# Add one row per crew. Remove the sample rows above before the event.

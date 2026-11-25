@@ -1,0 +1,15 @@
+# CTFd backend image: upstream image + PostgreSQL driver + curl.
+#
+# The `ctfd/ctfd` image ships only the MySQL driver (PyMySQL) and no curl.
+# With a Postgres DATABASE_URL its entrypoint (ping.py) aborts with:
+#   ModuleNotFoundError: No module named 'psycopg2'
+# and the compose healthcheck (curl) can never succeed. Install the Postgres
+# driver into the image's virtualenv (/opt/venv) and add curl.
+FROM ctfd/ctfd:latest
+
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/* \
+ && /opt/venv/bin/pip install --no-cache-dir psycopg2-binary
+USER 1001

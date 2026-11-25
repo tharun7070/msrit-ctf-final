@@ -4,15 +4,17 @@
 **Location:** Los Santos Police Department · **Focus:** Keyed chain + hidden salt + checkpoint roots + triply-nested delta
 
 ## Mission briefing
-LSPD's overnight auth log claims to be tamper-evident: every line is chained by a keyed hash and periodic roots pin each block — but the salt is nowhere in the file, so a plain unkeyed recomputation cheerfully 'verifies' the forgeries. Two blocks are broken, not one. The sidecar delta that holds the originals is nested three deep, and a long run of easy-looking entries is bait that collapses to a flag that is not this audit's.
+Nightshift closes in two hours and Dispatch wants the audit signed off. The LSPD automated audit bus dumped a thousand dispatch records into lspd_auth.log, but three of them were rewritten after the fact. You are handed the tamper-evident chain, a sealed sidecar (audit_delta.bin), the on-disk specification -- and, because someone meant well, an unofficial desk note. Recover the altered records, bring the chain back into agreement, and hand Dispatch the real audit flag.
 
 ## Objective
-Recover the salt from the checkpoint roots, repair every broken block, and derive the encoded flag from a cross-field predicate. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
+Repair the keyed, block-dependent audit chain, open both sealed regions of audit_delta.bin in the correct order, and submit the flag that satisfies the spec's acceptance predicate and final sealed unwrap. Submit exactly one recovered flag to CTFd, in the form `FTA{...}`. The braces and capitalization matter. Do not submit explanations.
 
 ## Evidence files
 - `lspd_auth.log`
 - `audit_delta.bin`
 - `CHAIN_SPEC.txt`
+- `OPS_NOTE.txt`
+- `flash_backup.bin`
 
 ## Scope and safety
 Work only on the downloaded challenge artifacts. All targets, identities and addresses are fictional. No scanning, account access, or attacks against a real network are required or allowed.

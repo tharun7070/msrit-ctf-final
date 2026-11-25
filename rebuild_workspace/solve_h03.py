@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""H03 reference solver — peels all seven chained matryoshka shells.
+"""H03 reference solver — peels all nine chained matryoshka shells.
 
-Self-contained: it re-implements every decoder (gated LSB reader, EXIF/GPS
-reader, PBKDF2 + AES-256-CTR, the PKZIP/ZipCrypto vault reader, AES-256-GCM,
-the MTX-1 matrix code, the Huffman tree rebuilt from the note's frequency
-table) from scratch and reads only the two participant files in
-L.out_dir("H03").
+Self-contained: it re-implements every decoder (EXIF/GPS reader, geo-gate
+AES-256-CTR, gated+masked LSB reader, PKZIP/ZipCrypto vault reader,
+AES-256-GCM with AAD, the MTX-1 matrix code, the Huffman tree rebuilt from the
+note's frequency table, the sealed-source AES-256-CTR, and the token-gated
+final stage) from scratch and reads only the shipped files in L.out_dir("H03").
 
 Each shell is unlocked by a value recovered from a PRECEDING shell, so the
 chain cannot be entered in the middle.
@@ -23,21 +23,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_fta as L
 
 W, H = 200, 160          # carrier dimensions
-MATRIX_N = 41            # MTX-1 module grid
+MATRIX_N = 81            # MTX-1 module grid
+SALT_GATE = b"impound-geogate-7"
 SALT_CTR = b"lspd-impound-2026"
 SALT_GCM = b"evac-vault-7731"
+SALT_STAGE = b"matryoshka-seal"
 ITER = 100000
 TSIZE = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 7: 1}
 
+BAG_OPEN = b"--#EVIDENCE-BAG--#\n"
+BAG_CLOSE = b"\n--#BAG-END--#\n"
 VAULT_OPEN = b"--#VAULT-BEGIN--#\n"
 VAULT_CLOSE = b"\n--#VAULT-END--#\n"
 
+PNG = L.out_dir("H03") / "impound_camera.png"
+NOTE = L.out_dir("H03") / "EVIDENCE_NOTE.txt"
+
 
 # ---------------------------------------------------------------------------
-# Shell 6 / note: frequency table -> deterministic Huffman tree
+# Shell 7 / note: frequency table -> deterministic Huffman tree (+ S2 gating)
 # ---------------------------------------------------------------------------
 def parse_freq_table():
-    note = (L.out_dir("H03") / "EVIDENCE_NOTE.txt").read_text(encoding="utf-8")
+    note = NOTE.read_text(encoding="utf-8")
     block = re.search(r"\[LEDGER-BEGIN\]\n(.*?)\n\[LEDGER-END\]", note, re.S).group(1)
     freqs = {}
     for line in block.splitlines():
@@ -50,8 +57,6 @@ def parse_freq_table():
 
 
 def build_codes(freqs):
-    """Deterministic Huffman, identical to the generator: leaves inserted first
-    in ascending ASCII order, internal nodes in creation order; ties by seq."""
     import heapq
     heap = []
     seq = 0
@@ -89,33 +94,10 @@ def gating(freqs):
 
 
 # ---------------------------------------------------------------------------
-# Shell 1: gated column-major 2-LSB extraction
-# ---------------------------------------------------------------------------
-def extract_payload(stride, offset):
-    img = Image.open(L.out_dir("H03") / "impound_camera.png").convert("RGB")
-    px = img.load()
-    bits = []
-    slot = 0
-    for x in range(W):
-        for y in range(H):
-            for c in px[x, y]:
-                if slot % stride == offset:
-                    bits.append((c >> 1) & 1)
-                    bits.append(c & 1)
-                slot += 1
-    data = bytearray()
-    for i in range(0, (len(bits) // 8) * 8, 8):
-        data.append(int("".join(str(b) for b in bits[i:i + 8]), 2))
-    n = int.from_bytes(data[:4], "big")
-    payload = bytes(data[4:4 + n])
-    return payload[:16], payload[16:]          # TAG, CTR_BLOB
-
-
-# ---------------------------------------------------------------------------
-# Shell 2: EXIF GPS reader (hand-rolled TIFF parse) + AES-256-CTR
+# Shell 1: EXIF GPS reader (hand-rolled TIFF parse)
 # ---------------------------------------------------------------------------
 def read_gps():
-    raw = Image.open(L.out_dir("H03") / "impound_camera.png").info.get("exif")
+    raw = Image.open(PNG).info.get("exif")
     assert raw and raw[:6] == b"Exif\x00\x00", "no EXIF in PNG"
     tiff = raw[6:]
     assert tiff[:2] == b"II", "expected little-endian TIFF"
@@ -159,38 +141,89 @@ def gps_code(lat, lon):
     return f"{a:05d}{b:05d}"
 
 
-def ctr_decrypt(blob, pwd):
-    key = PBKDF2(pwd.encode(), SALT_CTR, dkLen=32, count=ITER, hmac_hash_module=SHA256)
+def read_gate_card(png_path):
+    """S1: read the 'gate.card' tEXt value (hex), decrypt to the 16-byte mask."""
+    im = Image.open(png_path)
+    gate_hex = None
+    for bag in (getattr(im, "text", None), im.info):
+        if bag and "gate.card" in bag:
+            gate_hex = bag["gate.card"]
+            break
+    assert gate_hex is not None, "gate.card chunk missing"
+    blob = bytes.fromhex(gate_hex)
+    nonce, ct = blob[:16], blob[16:]
+    return nonce, ct
+
+
+def gate_mask(gate_blob, code):
+    nonce, ct = gate_blob
+    key = PBKDF2(("GEO-" + code).encode(), SALT_GATE, dkLen=32,
+                 count=ITER, hmac_hash_module=SHA256)
+    return AES.new(key, AES.MODE_CTR, nonce=b"",
+                   initial_value=int.from_bytes(nonce, "big")).decrypt(ct)
+
+
+# ---------------------------------------------------------------------------
+# Shell 2: gated + masked column-major 2-LSB extraction
+# ---------------------------------------------------------------------------
+def extract_payload(stride, offset, mask):
+    img = Image.open(PNG).convert("RGB")
+    px = img.load()
+    bits = []
+    slot = 0
+    for x in range(W):
+        for y in range(H):
+            for c in px[x, y]:
+                if slot % stride == offset:
+                    bits.append((c >> 1) & 1)
+                    bits.append(c & 1)
+                slot += 1
+    data = bytearray()
+    for i in range(0, (len(bits) // 8) * 8, 8):
+        data.append(int("".join(str(b) for b in bits[i:i + 8]), 2))
+    n = int.from_bytes(data[:4], "big")
+    masked = bytes(data[4:4 + n])
+    payload = bytes(b ^ mask[i % 16] for i, b in enumerate(masked))
+    return payload[:16], payload[16:]          # TAG, CTR_BLOB
+
+
+# ---------------------------------------------------------------------------
+# Shell 3: AES-256-CTR
+# ---------------------------------------------------------------------------
+def ctr_decrypt(blob, pwd, salt):
+    key = PBKDF2(pwd.encode(), salt, dkLen=32, count=ITER, hmac_hash_module=SHA256)
     nonce, ct = blob[:16], blob[16:]
     return AES.new(key, AES.MODE_CTR, nonce=b"",
                    initial_value=int.from_bytes(nonce, "big")).decrypt(ct)
 
 
 # ---------------------------------------------------------------------------
-# Shell 3: read the password-gated ZIP from the trailing zone
+# Shell 4: read a password-gated ZIP from the trailing zone
 # ---------------------------------------------------------------------------
-def read_vault(badge):
-    data = (L.out_dir("H03") / "impound_camera.png").read_bytes()
-    z0 = data.index(VAULT_OPEN) + len(VAULT_OPEN)
-    z1 = data.index(VAULT_CLOSE, z0)
+def read_zip_block(open_m, close_m, password):
+    data = PNG.read_bytes()
+    z0 = data.index(open_m) + len(open_m)
+    z1 = data.index(close_m, z0)
     zf = zipfile.ZipFile(io.BytesIO(data[z0:z1]))
-    zf.setpassword(badge.encode())
-    return zf.read("layer4.bin")
+    zf.setpassword(password.encode())
+    return zf
 
 
 # ---------------------------------------------------------------------------
-# Shell 4: AES-256-GCM
+# Shell 5: AES-256-GCM (nonce from the tag, AAD = mask)
 # ---------------------------------------------------------------------------
-def gcm_decrypt(blob, badge, code, tag):
+def gcm_decrypt(blob, badge, code, tag, mask):
     key = PBKDF2((badge + ":" + code).encode(), SALT_GCM,
                  dkLen=32, count=ITER, hmac_hash_module=SHA256)
     nonce = SHA256.new(b"gcm" + tag).digest()[:12]
     ct, gcm_tag = blob[:-16], blob[-16:]
-    return AES.new(key, AES.MODE_GCM, nonce=nonce).decrypt_and_verify(ct, gcm_tag)
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    cipher.update(mask)
+    return cipher.decrypt_and_verify(ct, gcm_tag)
 
 
 # ---------------------------------------------------------------------------
-# Shell 5: MTX-1 matrix decode
+# Shell 6: MTX-1 matrix decode
 # ---------------------------------------------------------------------------
 def _extract_grid(img):
     arr = np.array(img.convert("L"))
@@ -234,7 +267,7 @@ def decode_matrix(png_bytes):
 
 
 # ---------------------------------------------------------------------------
-# Shell 6: Huffman decode using the frequency table
+# Shell 7: Huffman decode using the frequency table
 # ---------------------------------------------------------------------------
 def huffman_decode(stream, codes):
     rev = {v: k for k, v in codes.items()}
@@ -254,47 +287,82 @@ def huffman_decode(stream, codes):
 
 
 # ---------------------------------------------------------------------------
-def solve():
-    # Shell 6 note gives both the Huffman tree and the LSB gating.
+def walk_to_stage():
+    """Peel S1..S8 and return (stage_source, seal_token) — the material the
+    final stage (S9) needs. Used by both solve() and the validator."""
+    # Note gives both the Huffman tree and the LSB gating.
     freqs = parse_freq_table()
     codes = build_codes(freqs)
     stride, offset = gating(freqs)
 
-    # Shell 1
-    tag, ctr_blob = extract_payload(stride, offset)
-
-    # Shell 2
+    # Shell 1: GPS -> CODE -> gate card -> MASK
     lat, _latref, lon, _lonref = read_gps()
     code = gps_code(lat, lon)
-    badge = ctr_decrypt(ctr_blob, "IMPOUND-" + code).decode("ascii")
+    mask = gate_mask(read_gate_card(PNG), code)
+    assert len(mask) == 16, "gate mask wrong size"
+
+    # Shell 2: gated + masked LSB -> TAG, CTR_BLOB
+    tag, ctr_blob = extract_payload(stride, offset, mask)
+
+    # Shell 3: AES-256-CTR -> BADGE
+    badge = ctr_decrypt(ctr_blob, "IMPOUND-" + code, SALT_CTR).decode("ascii")
     assert badge, "empty badge"
 
-    # Shell 3
-    gcm_blob = read_vault(badge)
+    # Shell 4: real vault (password = badge) -> layer4.bin
+    zf = read_zip_block(VAULT_OPEN, VAULT_CLOSE, badge)
+    gcm_blob = zf.read("layer4.bin")
 
-    # Shell 4
-    matrix_png = gcm_decrypt(gcm_blob, badge, code, tag)
-    assert matrix_png[:8] == b"\x89PNG\r\n\x1a\n", "shell4 plaintext is not a PNG"
+    # Shell 5: AES-256-GCM (AAD = mask)
+    matrix_png = gcm_decrypt(gcm_blob, badge, code, tag, mask)
+    assert matrix_png[:8] == b"\x89PNG\r\n\x1a\n", "shell5 plaintext is not a PNG"
 
-    # Shell 5
-    token = decode_matrix(matrix_png)
-    assert re.fullmatch(r"[A-Za-z0-9_\-]+={0,2}", token), f"token shape off: {token!r}"
+    # Shell 6: MTX-1 matrix -> ROUTE_KEY | base64url(STREAM)
+    combined = decode_matrix(matrix_png)
+    route_key, b64stream = combined.split("|", 1)
+    assert re.fullmatch(r"[A-Za-z0-9_\-]+", route_key), f"route key shape off: {route_key!r}"
+    stream = base64.urlsafe_b64decode(b64stream)
 
-    # Shell 6
-    stream = base64.urlsafe_b64decode(token)
-    src = huffman_decode(stream, codes)
+    # Shell 7: Huffman -> SEAL_TOKEN | base64(SEALED_SOURCE)
+    s7_text = huffman_decode(stream, codes)
+    seal_token, b64sealed = s7_text.split("|", 1)
+    sealed = base64.b64decode(b64sealed)
 
-    # Shell 7
+    # Shell 8: AES-256-CTR (key from ROUTE_KEY) -> Python source
+    src = ctr_decrypt(sealed, route_key, SALT_STAGE).decode("utf-8")
+    assert "hashlib" in src, "shell8 plaintext is not the expected stage"
+    return src, seal_token
+
+
+def run_stage(src, token):
+    """S9: execute the recovered stage with `token` as sys.argv[1]."""
     buf = io.StringIO()
     import contextlib
-    with contextlib.redirect_stdout(buf):
-        exec(src, {})
-    flag = re.search(r"FTA\{[a-z0-9_]+\}", buf.getvalue()).group(0)
+    old_argv = sys.argv
+    sys.argv = ["stage.py", token]
+    try:
+        with contextlib.redirect_stdout(buf):
+            exec(src, {})
+    finally:
+        sys.argv = old_argv
+    return buf.getvalue()
+
+
+def solve(verbose=False):
+    src, seal_token = walk_to_stage()
+
+    # Shell 9: run the stage with the SEAL token as argv[1]
+    out = run_stage(src, seal_token)
+    m = re.search(r"FTA\{[a-z0-9_]+\}", out)
+    assert m, f"final stage produced no flag: {out!r}"
+    flag = m.group(0)
 
     assert flag == L.FLAGS["H03"], flag
+    if verbose:
+        print("[H03] seal_token =", seal_token)
+        print("[H03] stage source:\n" + src)
     print("[H03] PASS ->", flag)
     return flag
 
 
 if __name__ == "__main__":
-    solve()
+    solve(verbose="-v" in sys.argv)

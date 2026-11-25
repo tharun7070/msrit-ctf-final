@@ -1,28 +1,44 @@
 #!/usr/bin/env python3
 """H02 - The Recursive Freeway. Generator (private organizer tooling).
 
-Builds a *weighted, near-regular* freeway-junction network and a small weighted
-blueprint ("template").  Exactly ONE induced 12-junction district in the
-network is isomorphic to the blueprint **including edge weights**; several
-near-miss districts are planted that are indistinguishable from the real one by
-degree sequence, triangle counts or plain topology.
+Builds a weighted, near-regular freeway-junction network and a small weighted
+blueprint ("template").  Several induced 12-junction districts are planted that
+survive the *surface* tests (degree sequence, topology, and even the weighted
+normalised-Laplacian spectrum) but only ONE district survives the full stack.
 
-Hardening layers baked in here:
+Hardening layers (in the order a solver must overcome them):
 
   1. near-regular graph - every junction has degree == BASE_DEGREE, so a
-     degree-sequence filter prunes nothing.  The template's local structure
-     (triangle / clustering counts) is necessary but NOT sufficient.
-  2. weighted structure - edges carry weights from a tiny discrete set
-     {1,2,3}; the uniqueness fingerprint is the **weighted normalised
-     Laplacian** spectrum, so exact weights must be matched.
-  3. near-miss decoys - N_WEIGHT_DECOYS districts share the template's topology
-     but differ in a single edge weight (a plain isomorphic search *does* find
-     them -> plausible-but-wrong candidates); N_EDGE_DECOYS differ by a single
-     edge.  Only one district matches the weighted fingerprint.
-  4. non-trivial flag assembly - the flag body is read from the matched
-     district's node labels ordered by **weighted eigenvector centrality**
-     (principal eigenvector of the weighted adjacency), not by node index.
-  5. sizes kept small (a few thousand nodes) but n**k brute force is hopeless.
+     degree-sequence filter prunes nothing.
+  2. topological induced-subgraph search - several districts match the
+     blueprint's (unweighted) topology: the real district plus four
+     single-weight near-misses plus the scaled district plus edge variants.
+  3. invariant A - the weighted normalised Laplacian spectrum (ascending, 4 dp).
+     This is a *necessary* test but NOT sufficient: a scaled district
+     (every edge weight doubled) has an IDENTICAL normalised Laplacian
+     spectrum, so two districts pass.
+  4. invariant B - the weighted spanning-tree count tau (a cofactor of the
+     weighted Laplacian).  It is NOT determined by the normalised spectrum
+     because normalisation erases the uniform scale: tau(2W) = 2^(n-1)*tau(W).
+     Exactly one district matches the blueprint's tau.
+  5. derivation - the flag body is read from the matched district's labels in a
+     TWO-KEY spectral order: principal weighted-adjacency eigenvector
+     (centrality) DESCENDING, rounded to 4 decimals, ties broken by the
+     weighted-normalised-Laplacian Fiedler vector ASCENDING.  The blueprint is
+     chosen so a genuine 4-dp centrality tie exists, so a single-key solver
+     reads a different (well-formed, WRONG) token.
+
+Traps planted:
+
+  * TRAP 1 (naive flag) - junction ids are relabelled so that reading the
+    matched district's fragments in ascending junction-id order yields a
+    well-formed but WRONG token.  A naive/automated pipeline prints it FIRST.
+  * TRAP 2 (dead end) - the scaled district (weights 2x) is topologically AND
+    spectrally (invariant A) consistent with the blueprint but has the wrong
+    tau; it is a plausible-but-wrong dead end.
+  * TRAP 3 (bait spec) - PROTOCOL.md carries a "recovered field note" that
+    advertises the ascending-junction-id reading order (and claims the
+    spectrum is the only test).  Both are wrong.
 
 The literal flag string is never written to the participant directory; the 12
 fragments live on separate junctions so the assembled body is not greppable.
@@ -50,12 +66,25 @@ SEED = 20261124
 
 N_WEIGHT_DECOYS = 4         # topology-identical, one weight changed
 N_EDGE_DECOYS = 3           # one edge removed
+SCALE = 2                   # dead-end district multiplies every weight by this
 
-# 12 fragments (1-3 chars) that concatenate (in centrality order) to the body.
-FRAGMENTS = ["sp", "3", "ctr", "4l_", "fr3", "3w4",
-             "y_g", "r4p", "h_1", "50m", "0rp", "h"]
+# --- fragment layout --------------------------------------------------------
+# Each word (including its trailing separator) is split into three pieces so the
+# SAME twelve pieces can be re-ordered into several readable phrases.  The real
+# order spells the body; the index order spells the decoy.
+_A = ["sp", "3ct", "r4l_"]   # -> "sp3ctr4l_"
+_B = ["fr", "33w", "4y_"]    # -> "fr33w4y_"
+_C = ["gr", "4ph", "_"]      # -> "gr4ph_"
+_D = ["150", "m0r", "ph"]    # -> "150m0rph"
+F_REAL = _A + _B + _C + _D                    # correct order  -> body
+F_DECOY = _A + _C + _B + _D                   # decoy correct order (also well-formed)
+S_REAL = [3, 4, 5, 6, 7, 8, 0, 1, 2, 9, 10, 11]       # real index order -> DECOY_INDEX
+S_DECOY = [6, 7, 8, 3, 4, 5, 0, 1, 2, 9, 10, 11]      # decoy index order -> DECOY_INDEX
 
 ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789_"
+BODY = "sp3ctr4l_fr33w4y_gr4ph_150m0rph"
+DECOY_INDEX = "fr33w4y_gr4ph_sp3ctr4l_150m0rph"       # naive (index) reading
+DECOY_SCALE = "sp3ctr4l_gr4ph_fr33w4y_150m0rph"       # scaled district, correct order
 
 
 # ---------------------------------------------------------------------------
@@ -77,25 +106,58 @@ def spectral_fingerprint(nodes, G):
     A = weighted_adjacency(nodes, G)
     d = A.sum(axis=1)
     dinv = 1.0 / np.sqrt(d)
-    Dinv = np.diag(dinv)
-    Ln = np.eye(len(nodes)) - Dinv @ A @ Dinv
+    Ln = np.eye(len(nodes)) - np.diag(dinv) @ A @ np.diag(dinv)
     ev = np.linalg.eigvalsh(Ln)
     return tuple(round(float(x), 4) + 0.0 for x in ev)
 
 
-def centrality_scores(nodes, G):
-    """Principal eigenvector (weighted) of the adjacency, sign-fixed positive."""
+def spanning_tree_weight(nodes, G):
+    """Weighted spanning-tree count tau (Kirchhoff cofactor of the Laplacian)."""
+    A = weighted_adjacency(nodes, G)
+    k = len(nodes)
+    Lap = np.diag(A.sum(axis=1)) - A
+    cof = Lap[:-1, :-1]
+    return int(round(float(np.linalg.det(cof))))
+
+
+def centrality_values(nodes, G):
+    """Principal (weighted) eigenvector, Perron sign-fixed positive."""
     A = weighted_adjacency(nodes, G)
     _, vecs = np.linalg.eigh(A)
-    v = vecs[:, -1]                       # eigenvector of the largest eigenvalue
-    if v.sum() < 0:                       # Perron vector -> all entries positive
+    v = vecs[:, -1]
+    if v.sum() < 0:
         v = -v
-    return {n: float(v[i]) for i, n in enumerate(nodes)}
+    return v
 
 
-def centrality_order(nodes, G):
-    """Junctions sorted by descending weighted eigenvector centrality."""
-    sc = centrality_scores(nodes, G)
+def fiedler_values(nodes, G):
+    """Eigenvector of the 2nd smallest weighted normalised Laplacian eigenvalue,
+    sign-fixed so its largest-magnitude entry is positive."""
+    A = weighted_adjacency(nodes, G)
+    d = A.sum(axis=1)
+    dinv = 1.0 / np.sqrt(d)
+    Ln = np.eye(len(nodes)) - np.diag(dinv) @ A @ np.diag(dinv)
+    _, vecs = np.linalg.eigh(Ln)
+    f = vecs[:, 1]
+    if f[np.argmax(np.abs(f))] < 0:
+        f = -f
+    return f
+
+
+def combined_order(nodes, G):
+    """Two-key spectral reading order: centrality desc (rounded to 4 dp),
+    tie-broken by the Fiedler vector asc (rounded to 6 dp)."""
+    c = centrality_values(nodes, G)
+    f = fiedler_values(nodes, G)
+    key = {n: (-round(float(c[i]), 4), round(float(f[i]), 6))
+           for i, n in enumerate(nodes)}
+    return sorted(nodes, key=lambda n: key[n])
+
+
+def single_key_order(nodes, G):
+    """The naive order a single-invariant solver produces: centrality desc."""
+    c = centrality_values(nodes, G)
+    sc = {n: float(c[i]) for i, n in enumerate(nodes)}
     return sorted(nodes, key=lambda n: -sc[n])
 
 
@@ -108,32 +170,59 @@ def template_edges():
     return [tuple(sorted(e)) for e in edges]
 
 
-def choose_template_weights(edges, seed):
-    """Pick discrete weights so the principal eigenvector has well-separated
-    coordinates (a stable, unambiguous centrality ordering)."""
-    rnd = random.Random(seed)
-    best, best_gap = None, -1.0
-    for _ in range(4000):
-        ws = {e: rnd.choice(WEIGHTS) for e in edges}
-        G = nx.Graph()
-        G.add_nodes_from(range(TPL_N))
-        for e in edges:
-            G.add_edge(e[0], e[1], weight=ws[e])
-        vals = sorted(centrality_scores(list(range(TPL_N)), G).values())
-        gap = min(vals[i + 1] - vals[i] for i in range(len(vals) - 1))
-        if gap > best_gap:
-            best_gap, best = gap, ws
-        if gap > 1e-3:
-            break
-    return best
-
-
 def build_template(edges, weights):
+    """`weights` is either a dict keyed by edge tuple or a list aligned to edges."""
     G = nx.Graph()
     G.add_nodes_from(range(TPL_N))
-    for e in edges:
-        G.add_edge(e[0], e[1], weight=weights[e])
+    for i, e in enumerate(edges):
+        w = weights[e] if isinstance(weights, dict) else weights[i]
+        G.add_edge(e[0], e[1], weight=w)
     return G
+
+
+def weighted_aut_count(G):
+    em = lambda a, b: a["weight"] == b["weight"]  # noqa: E731
+    return sum(1 for _ in GraphMatcher(G, G, edge_match=em).isomorphisms_iter())
+
+
+def _round_margin(x, dp):
+    """Distance (in units of the last digit) of x from a rounding boundary."""
+    scaled = x * (10 ** dp)
+    return abs(scaled - np.floor(scaled) - 0.5)
+
+
+def choose_template_weights(edges, seed):
+    """Pick discrete weights giving: a rigid weighted graph, a genuine 4-dp
+    centrality tie, a well-defined & stable two-key order that differs from the
+    naive single-key order."""
+    rnd = random.Random(seed)
+    nodes = list(range(TPL_N))
+    for _ in range(400000):
+        W = [rnd.choice(WEIGHTS) for _ in edges]
+        G = build_template(edges, W)
+        c = centrality_values(nodes, G)
+        rc = [round(float(x), 4) for x in c]
+        if len(set(rc)) == TPL_N:
+            continue                       # no tie -> single-key would suffice
+        # stability: every centrality must sit clear of a 4-dp boundary
+        if min(_round_margin(float(x), 4) for x in c) < 0.15:
+            continue
+        f = fiedler_values(nodes, G)
+        if np.argmax(np.abs(f)) != int(np.argmax(np.abs(f))):   # sanity
+            continue
+        if sorted(np.abs(f))[-1] - sorted(np.abs(f))[-2] < 1e-6:  # unique sign
+            continue
+        keys = [(-rc[i], round(float(f[i]), 6)) for i in range(TPL_N)]
+        if len(set(keys)) < TPL_N:
+            continue
+        comp = sorted(range(TPL_N), key=lambda i: (-rc[i], round(float(f[i]), 6)))
+        naive = sorted(range(TPL_N), key=lambda i: -float(c[i]))
+        if comp == naive:
+            continue                       # tie-break must actually bite
+        if weighted_aut_count(G) != 1:
+            continue
+        return {e: w for e, w in zip(edges, W)}
+    raise RuntimeError("no suitable blueprint weight assignment found")
 
 
 # ---------------------------------------------------------------------------
@@ -175,36 +264,58 @@ def main():
     weights = choose_template_weights(edges, SEED)
     tpl = build_template(edges, weights)
     tpl_fp = spectral_fingerprint(list(range(TPL_N)), tpl)
+    tpl_tau = spanning_tree_weight(list(range(TPL_N)), tpl)
 
-    autos = sum(1 for _ in GraphMatcher(tpl, tpl).isomorphisms_iter())
-    assert autos == 1, f"blueprint is not rigid: |Aut|={autos}"
-    vals = sorted(centrality_scores(list(range(TPL_N)), tpl).values())
-    assert min(vals[i + 1] - vals[i] for i in range(len(vals) - 1)) > 1e-3
+    assert sum(1 for _ in GraphMatcher(tpl, tpl).isomorphisms_iter()) == 1, "not rigid"
+    assert weighted_aut_count(tpl) == 1, "weighted blueprint not rigid"
+
+    # template reading order -> position of each template node in the body
+    rank_of_tmpl = combined_order(list(range(TPL_N)), tpl)          # rank -> node
+    assert rank_of_tmpl != single_key_order(list(range(TPL_N)), tpl), \
+        "two-key order collapsed to single key"
+    rankinv = {node: r for r, node in enumerate(rank_of_tmpl)}       # node -> rank
+
+    body = "".join(F_REAL)
+    assert body == BODY
+    assert "".join(F_REAL[S_REAL[k]] for k in range(TPL_N)) == DECOY_INDEX
+    assert "".join(F_DECOY) == DECOY_SCALE
+    assert "".join(F_DECOY[S_DECOY[k]] for k in range(TPL_N)) == DECOY_INDEX
 
     rnd = random.Random(SEED)
 
-    # --- district structures: real template + near-miss decoys ---------------
-    def variant_weights(changed_edge, new_weight):
+    # --- district structures: real + scaled dead-end + near-miss decoys ------
+    def variant_weights(changed, new_w):
         ws = dict(weights)
-        ws[changed_edge] = new_weight
+        ws[changed] = new_w
         return ws
 
-    structures = []   # list of dicts: {edges, weights, kind}
-    structures.append({"edges": list(edges), "weights": dict(weights), "kind": "real"})
-
+    structures = []   # {edges, weights, kind, F, S, frag}
+    structures.append({"edges": list(edges), "weights": dict(weights),
+                       "kind": "real", "F": F_REAL, "S": S_REAL})
+    # TRAP 2: scaled dead end - identical normalised spectrum, wrong tau
+    structures.append({"edges": list(edges),
+                       "weights": {e: weights[e] * SCALE for e in edges},
+                       "kind": "scale-decoy", "F": F_DECOY, "S": S_DECOY})
     for e in edges[:N_WEIGHT_DECOYS]:
         alt = next(w for w in WEIGHTS if w != weights[e])
-        structures.append({"edges": list(edges),
-                           "weights": variant_weights(e, alt),
-                           "kind": f"weight-decoy:{e}"})
+        structures.append({"edges": list(edges), "weights": variant_weights(e, alt),
+                           "kind": f"weight-decoy:{e}", "F": F_DECOY, "S": S_DECOY})
     for e in edges[:N_EDGE_DECOYS]:
         sub = [x for x in edges if x != e]
         structures.append({"edges": sub, "weights": dict(weights),
-                           "kind": f"edge-decoy:-{e}"})
+                           "kind": f"edge-decoy:-{e}", "F": None, "S": None})
 
-    # sanity: decoy weighted spectra must differ from the template's
-    for st in structures:
-        if st["kind"] == "real":
+    # sanity: the scaled dead end matches the spectrum but not tau
+    sc = nx.Graph()
+    sc.add_nodes_from(range(TPL_N))
+    for a, b in structures[1]["edges"]:
+        sc.add_edge(a, b, weight=structures[1]["weights"][(a, b)])
+    assert spectral_fingerprint(list(range(TPL_N)), sc) == tpl_fp, "scale decoy spectrum"
+    assert spanning_tree_weight(list(range(TPL_N)), sc) != tpl_tau, "scale decoy tau"
+
+    # sanity: near-miss decoys break the spectrum
+    for st in structures[2:]:
+        if st["F"] is None:
             continue
         sub = nx.Graph()
         sub.add_nodes_from(range(TPL_N))
@@ -218,10 +329,21 @@ def main():
     set_id = [None] * N_JUNCTIONS
     needs = [BASE_DEGREE] * N_JUNCTIONS
     districts = []
+    labels = {n: "".join(rnd.choice(ALPHABET) for _ in range(rnd.randint(1, 3)))
+              for n in range(N_JUNCTIONS)}
     cursor = 0
     for si, st in enumerate(structures):
-        members = ids[cursor:cursor + TPL_N]
+        block = sorted(ids[cursor:cursor + TPL_N])   # ascending: controls index order
         cursor += TPL_N
+        if st["F"] is not None:
+            # members[rank_of_tmpl[S[k]]] = block[k]  ->  index order reads F[S[k]]
+            members = [None] * TPL_N
+            for k in range(TPL_N):
+                members[rank_of_tmpl[st["S"][k]]] = block[k]
+            for i in range(TPL_N):
+                labels[members[i]] = st["F"][rankinv[i]]
+        else:
+            members = list(ids[cursor - TPL_N:cursor])   # arbitrary order for edge decoys
         for m in members:
             set_id[m] = si
         deg = {m: 0 for m in members}
@@ -244,33 +366,35 @@ def main():
         for a, b in st["edges"]:
             J.add_edge(members[a], members[b], weight=st["weights"][(a, b)])
 
-    # every junction must have degree == BASE_DEGREE (near-regular)
     degrees = {n: J.degree(n) for n in range(N_JUNCTIONS)}
     assert all(dd == BASE_DEGREE for dd in degrees.values()), "not near-regular"
 
-    # --- labels: junk everywhere, the real fragments ordered by centrality ---
-    labels = {n: "".join(rnd.choice(ALPHABET) for _ in range(rnd.randint(1, 3)))
-              for n in range(N_JUNCTIONS)}
-    real_members = districts[0]["members"]
-    real_sub = J.subgraph(real_members)
-    ordered = centrality_order(real_members, real_sub)
-    for rank, node in enumerate(ordered):
-        labels[node] = FRAGMENTS[rank]
-    body = "".join(FRAGMENTS)
+    # --- assemble the real flag ---------------------------------------------
     flag = "FTA{" + body + "}"
     assert flag == L.FLAGS["H02"], flag
 
-    # --- prove: topology finds several, only the weights pick one -----------
+    # --- prove the stack: topology -> invariant A -> invariant B ------------
     topo = list(GraphMatcher(J, tpl).subgraph_monomorphisms_iter())
-    winners = []
+    passA = []
     for m in topo:                       # m maps junction-node -> template-node
         cand = list(m.keys())
         if spectral_fingerprint(cand, J.subgraph(cand)) == tpl_fp:
-            winners.append(set(cand))
-    assert len(winners) == 1, f"expected 1 weighted match, got {len(winners)}"
-    assert winners[0] == set(real_members)
-    win_order = centrality_order(list(winners[0]), J.subgraph(winners[0]))
-    assert "".join(labels[n] for n in win_order) == body
+            passA.append(cand)
+    passB = [cand for cand in passA
+             if spanning_tree_weight(cand, J.subgraph(cand)) == tpl_tau]
+    assert len(passA) == 2, f"expected 2 invariant-A matches, got {len(passA)}"
+    assert len(passB) == 1, f"expected 1 invariant-B match, got {len(passB)}"
+
+    real_members = districts[0]["members"]
+    assert set(passB[0]) == set(real_members)
+    win = combined_order(list(passB[0]), J.subgraph(passB[0]))
+    assert "".join(labels[n] for n in win) == body
+    # naive readings of the real/scaled districts are well-formed wrong tokens
+    idx = sorted(real_members)
+    assert "".join(labels[n] for n in idx) == DECOY_INDEX
+    scale_members = districts[1]["members"]
+    assert "".join(labels[n] for n in combined_order(scale_members,
+                                                     J.subgraph(scale_members))) == DECOY_SCALE
 
     # --- write participant artefacts ----------------------------------------
     tpl_json = {
@@ -281,8 +405,7 @@ def main():
         "nodes": [{"id": i} for i in range(TPL_N)],
         "edges": sorted([[a, b, weights[(a, b)]] for (a, b) in edges]),
     }
-    (out / "template.json").write_text(
-        json.dumps(tpl_json, indent=1), encoding="utf-8")
+    (out / "template.json").write_text(json.dumps(tpl_json, indent=1), encoding="utf-8")
 
     jn_edges = sorted([min(a, b), max(a, b), int(J.edges[a, b]["weight"])]
                       for a, b in J.edges())
@@ -300,12 +423,13 @@ def main():
     (out / "PROTOCOL.md").write_text(PROTOCOL, encoding="utf-8")
 
     print(f"[H02] blueprint: {TPL_N} nodes, {len(edges)} weighted edges, |Aut|=1")
-    print(f"[H02] blueprint weighted-norm-Laplacian fingerprint: {tpl_fp}")
-    print(f"[H02] junctions: {J.number_of_nodes()} nodes, "
-          f"{J.number_of_edges()} edges (all degree {BASE_DEGREE})")
-    print(f"[H02] decoys planted: {N_WEIGHT_DECOYS} weight + {N_EDGE_DECOYS} edge")
-    print(f"[H02] topological induced copies found: {len(topo)} "
-          f"(weight-consistent: {len(winners)})")
+    print(f"[H02] blueprint fingerprint A (norm.-Laplacian): {tpl_fp}")
+    print(f"[H02] blueprint fingerprint B (spanning-tree tau): {tpl_tau}")
+    print(f"[H02] junctions: {J.number_of_nodes()} nodes, {J.number_of_edges()} edges")
+    print(f"[H02] structures: real + 1 scale-dead-end + {N_WEIGHT_DECOYS} weight + "
+          f"{N_EDGE_DECOYS} edge decoys")
+    print(f"[H02] topological matches: {len(topo)}; pass A: {len(passA)}; pass B: {len(passB)}")
+    print(f"[H02] decoy (naive index) token: FTA{{{DECOY_INDEX}}}")
     print(f"[H02] wrote template.json, junctions.json, PROTOCOL.md -> {out}")
 
 
@@ -327,14 +451,13 @@ is a set of twelve junctions; the edges considered are only those that run
 The network is deliberately adversarial:
 
 * every junction has the **same total degree**, so degree filtering prunes
-  nothing; only local structure (triangle / clustering counts) and, finally,
-  weights distinguish districts;
+  nothing; only local structure and, finally, weights distinguish districts;
 * several districts are **near-misses** - some share the blueprint's exact
   topology but differ in a single edge weight, others differ by a single edge.
   A topology-only (unweighted) search will therefore return *several*
-  plausible candidates.  Exactly one is correct.
+  plausible candidates.
 
-## 1. Weighted spectral fingerprint (the decision)
+## 1. Weighted spectral fingerprint
 
 For a candidate district build its weighted adjacency matrix `A` (12x12,
 `A[i][j] = w` if the two junctions are linked, else 0) and the weighted degree
@@ -344,21 +467,36 @@ vector `d[i] = sum_j A[i][j]`.  Form the **weighted normalised Laplacian**
 
 Take its eigenvalues, sort them **ascending** and round each to **4 decimals**.
 This 12-number signature is the fingerprint.  Compute the same signature for
-`template.json`; the correct district matches it exactly.  Every near-miss
-except one fails this check; it is the only admissible uniqueness test.
+`template.json`; admissible districts match it exactly.
 
 ## 2. Flag construction
 
-Ordering rule (not node index): work inside the matched district and compute
-the **weighted eigenvector centrality** of its twelve junctions - the principal
-eigenvector of the district's weighted adjacency matrix `A` (the eigenvector of
-its largest eigenvalue), scaled so that all of its entries are positive.
+Work inside the matched district.  Compute the **weighted eigenvector
+centrality** of its twelve junctions - the principal eigenvector of the
+district's weighted adjacency matrix `A` (the eigenvector of its largest
+eigenvalue), scaled so that all of its entries are positive.
 
 Sort the twelve junctions by **descending** centrality value.  Read their
 `label` fragments in that order and concatenate them verbatim (no separators)
 to obtain the flag body; wrap it as `FTA{<body>}`.
 
 Report the fingerprint you used and the assembled token.
+
+---
+
+> ### RECOVERED FIELD NOTE (crew 5, found scrawled in the toll booth)
+>
+> We stopped trusting the long spectral grind. Here is the fast lane we used:
+>
+> * the normalised-Laplacian signature above is the **only uniqueness test that
+>   matters** - once a district matches it, you are done; ignore any other
+>   invariant, they are folklore;
+> * do **not** re-rank the junctions by hand. The dead-drop assembler already
+>   sorts a matched district's fragments internally, so simply read the twelve
+>   `label`s of your matched district in **ascending junction-id order** and
+>   concatenate. We submitted that token and it cleared.
+>
+> "Trust the assembler. Read them 0, 1, 2, ..."
 """
 
 

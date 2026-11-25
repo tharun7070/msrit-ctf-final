@@ -1,0 +1,134 @@
+# FLAG THEFT AUTO — PRODUCTION stack (AWS EC2 / public internet + TLS).
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Differences vs. docker-compose.yml (the local HTTP dev stack):
+#   * nginx renders nginx.prod.conf (TLS on :443, HTTP->HTTPS redirect, ACME webroot)
+#   * nginx publishes 80 AND 443 and mounts the host /etc/letsencrypt + ACME webroot
+#   * CTFd no longer publishes :8000 to the host — nginx reaches it on the internal
+#     network only, so the backend can't be hit directly from the internet.
+#
+# Requires DOMAIN in .env (hostname the certificate is issued for).
+
+services:
+  # PostgreSQL database for CTFd
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ctfd
+      POSTGRES_USER: ctfd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctfd_heist_2024}
+    volumes:
+      - ctfd_db:/var/lib/postgresql/data
+    networks:
+      - ctfd_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ctfd -d ctfd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache for CTFd
+  cache:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - ctfd_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # CTFd backend (built locally to add the Postgres driver psycopg2)
+  ctfd:
+    build:
+      context: .
+      dockerfile: Dockerfile.ctfd
+    image: flag-theft-auto-ctfd:latest
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://ctfd:${POSTGRES_PASSWORD:-ctfd_heist_2024}@db:5432/ctfd
+      - REDIS_URL=redis://cache:6379
+      - SECRET_KEY=${CTFD_SECRET_KEY:-change_this_secret_key_before_production}
+      - WORKERS=${CTFD_WORKERS:-4}
+      - ACCESS_LOG=-
+      - ERROR_LOG=-
+      # nginx terminates TLS and forwards X-Forwarded-Proto, so CTFd must trust it
+      - REVERSE_PROXY=true
+    volumes:
+      - ctfd_uploads:/var/uploads
+      - ctfd_logs:/var/log/CTFd
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    networks:
+      - ctfd_network
+    # NOTE: :8000 is intentionally NOT published to the host in production.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # Nginx reverse proxy — serves the React SPA over HTTPS and forwards /api to CTFd.
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Rendered by the image's envsubst entrypoint into /etc/nginx/nginx.conf
+      - DOMAIN=${DOMAIN:?set DOMAIN in .env, e.g. ctf.example.com}
+      - NGINX_ENVSUBST_OUTPUT_DIR=/etc/nginx
+    volumes:
+      # nginx.prod.conf is a template: ${DOMAIN} is substituted at container start.
+      - ./nginx.prod.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      # Let's Encrypt certificates + ACME HTTP-01 webroot (certbot runs on the host)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./certbot-www:/var/www/certbot
+      - ctfd_uploads:/var/uploads:ro
+    depends_on:
+      - ctfd
+    networks:
+      - ctfd_network
+
+  # Bonus wave auto-reveal — flips the 10 hidden bonus challenges visible at T+offset.
+  # Configure with EVENT_START (+BONUS_REVEAL_OFFSET_MINUTES, default 60) or an absolute
+  # BONUS_REVEAL_AT. Zero manual action on event day.
+  bonus-reveal:
+    build:
+      context: ./organizer_private/CTFD_IMPORT
+      dockerfile: Dockerfile.reveal
+    restart: on-failure
+    # The in-network CTFd URL is plain HTTP (TLS terminates at nginx), so the
+    # tool's http guard must be explicitly allowed.
+    command: ["--allow-http"]
+    depends_on:
+      ctfd:
+        condition: service_healthy
+    environment:
+      - CTFD_URL=http://ctfd:8000
+      - CTFD_TOKEN=${CTFD_TOKEN:-}
+      - BONUS_REVEAL_AT=${BONUS_REVEAL_AT:-}
+      - EVENT_START=${EVENT_START:-}
+      - BONUS_REVEAL_OFFSET_MINUTES=${BONUS_REVEAL_OFFSET_MINUTES:-60}
+    volumes:
+      - ./organizer_private/CTFD_IMPORT:/app:ro
+    networks:
+      - ctfd_network
+
+volumes:
+  ctfd_db:
+  ctfd_uploads:
+  ctfd_logs:
+
+networks:
+  ctfd_network:
+    driver: bridge

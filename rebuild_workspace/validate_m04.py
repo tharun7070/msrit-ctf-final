@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """M04 - Underground XOR Radio. Validator (private).
 
-  1. Runs the reference solver end to end and checks it prints PASS + the
+  1. Runs the reference solver as a fresh process; it must print PASS + the
      canonical flag.
-  2. Asserts a WRONG flag is rejected: corrupt one ciphertext byte that maps
-     (through the lane transpose) onto a byte inside the flag body, and confirm
-     the decoded payload no longer matches.
-  3. Asserts the ROUND-ROBIN STARTING LANE actually matters: decoding with a
-     different (wrong) lane offset must NOT recover the flag, since it re-groups
-     the sample bytes into mixed register streams.
-
-decode() re-derives the plaintext from radio_packet.bin using the public
-helpers exported by solve_m04 (S.parse_header, S.recover_mask, S.unpermute,
-S.permutation, ...). decode(..., force_off=o) optionally forces a lane offset
-to exercise the offset trap.
+  2. Wrong-flag rejection: corrupt a ciphertext byte that maps (through wash,
+     spin and the lane transpose) onto a byte inside the flag body; the decode
+     must no longer carry the flag.
+  3. The cleartext header fields must all matter -- a wrong lane offset, the
+     FIELD-INTEL (wrong) beacon taps, or skipping either new header-keyed layer
+     (WASH, SPIN) must NOT yield the flag.
+  4. Trap checks: branchB_candidate.bin is exactly the genuine wrong-taps
+     branch (a dead end that looks like progress) and carries no flag;
+     legacy_burst.bin decodes (by the FIELD-INTEL method) to the DECOY flag.
+  5. Anti-leak: the real flag appears in NO shipped artefact.
 """
 import re
 import subprocess
@@ -24,33 +23,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_fta as L
 import solve_m04 as S
 
+REAL_FLAG = L.FLAGS["M04"]
+DECOY_FLAG = "FTA{l1n34r_f33db4ck_b34c0n_f4k3}"
+SPEC_FALSE_BEACON_TAPS = [17, 9]
+LEGACY_REGISTERS = [([11, 5], 0x5EE), ([13, 7], 0x1F1E),
+                    ([17, 9], 0x1234), ([23, 9], 0xDEAD)]
+LEGACY_BURST = 4
+LEGACY_OFF = 0
+BLOCK = 8
 
-def decode(packet: bytes, force_off=None) -> bytes:
-    out = L.out_dir("M04")
-    sample = (out / "keystream_sample.bin").read_bytes()
 
-    if force_off is None:
-        mask = S.recover_mask(sample, packet, len(packet) - S.HDR_LEN)
-    else:
-        # deliberately use the wrong lane offset (same demux code path)
-        off, burst, bdeg, btaps = S.parse_header(packet)
-        exposed = bytes(s ^ h for s, h in
-                        zip(sample, S.HEADER))[:S.REDACT_FROM]
-        lanes = S.demux(exposed, burst, force_off)
-        counts = S.lane_counts(len(packet) - S.HDR_LEN, burst, force_off)
-        streams = [None, None, None]
-        for r in (0, 1):
-            bits = S.bytes_to_bits(bytes(lanes[r]))
-            C, dd = S.berlekamp_massey(bits)
-            streams[r] = S.bits_to_bytes(S.extend(bits, C, dd, counts[r] * 8))
-        known = S.bytes_to_bits(bytes(lanes[S.BEACON]))[:counts[S.BEACON] * 8]
-        seed = S.recover_beacon_seed(known, btaps)
-        streams[S.BEACON] = L.lfsr_keystream(seed, btaps, counts[S.BEACON])
-        mask = S.assign(len(packet) - S.HDR_LEN, streams, burst, force_off)
+def decode_legacy(out):
+    ct = (out / "legacy_burst.bin").read_bytes()
+    mask = S.build_mask_from_regs(len(ct), LEGACY_REGISTERS, LEGACY_BURST, LEGACY_OFF)
+    return bytes(c ^ k for c, k in zip(S.unpermute(ct, BLOCK), mask))
 
-    ct = packet[S.HDR_LEN:]
-    masked = S.unpermute(ct)               # undo the lane transpose first
-    return bytes(p ^ k for p, k in zip(masked, mask))
+
+def has_flag(pt):
+    m = re.search(rb"FTA\{[^}]+\}", pt)
+    return m.group(0).decode() if m else None
 
 
 def main():
@@ -60,44 +51,67 @@ def main():
     r = subprocess.run([sys.executable, str(here / "solve_m04.py")],
                        capture_output=True, text=True)
     assert r.returncode == 0, f"solver exited {r.returncode}\n{r.stderr}"
-    expected = f"[M04] PASS -> {L.FLAGS['M04']}"
-    assert expected in r.stdout, f"solver stdout: {r.stdout!r}"
+    assert f"[M04] PASS -> {REAL_FLAG}" in r.stdout, f"solver stdout: {r.stdout!r}"
     print(r.stdout.strip())
 
     out = L.out_dir("M04")
     packet = (out / "radio_packet.bin").read_bytes()
-    off, burst, bdeg, btaps = S.parse_header(packet)
+    h = S.parse_header(packet)
+    assert h["crc_ok"], "sync header CRC did not verify"
 
-    pt = decode(packet)
+    pt = S.decode(packet)
+    good = has_flag(pt)
+    assert good == REAL_FLAG, good
     off_pt = pt.index(b"FTA{")
-    good = re.search(rb"FTA\{[^}]+\}", pt).group(0).decode()
-    assert good == L.FLAGS["M04"], good
 
-    # 2. wrong-flag rejection: map a flag-body plaintext byte back to its ct index
-    perm = S.permutation(len(packet) - S.HDR_LEN)   # ct[perm[p]] == masked[p]
+    # 2. wrong-flag rejection: map a flag-body byte back to its ct index.
+    perm = S.permutation(len(pt))                    # pt[p] <- transposed[perm[p]]
+    t = perm[off_pt + 6]
+    base = (t // 16) * 16
+    j = t % 16
+    m = min(16, len(pt) - base)
+    spun_idx = base + ((j - h["xk"] % m) % m)         # ct[spun_idx] -> pt[off_pt+6]
     bad = bytearray(packet)
-    bad[S.HDR_LEN + perm[off_pt + 6]] ^= 0x01       # corrupt inside the flag body
-    m = re.search(rb"FTA\{[^}]+\}", decode(bytes(bad)))
-    assert m, "no flag after corruption"
-    wrong = m.group(0).decode()
-    assert wrong != L.FLAGS["M04"], "wrong flag was NOT rejected"
+    bad[S.HDR_LEN + spun_idx] ^= 0x01
+    wrong = has_flag(S.decode(bytes(bad)))
+    assert wrong is not None, "no flag after corruption"
+    assert wrong != REAL_FLAG, "wrong flag was NOT rejected"
 
-    try:
-        assert wrong == L.FLAGS["M04"]
-        raise SystemExit("FAIL: guard accepted a wrong flag")
-    except AssertionError:
-        pass
+    # 3. every header field must matter
+    other = next(o for o in (0, 1, 2) if o != h["off"])
+    assert has_flag(S.decode(packet, force_off=other)) != REAL_FLAG, "wrong lane offset"
+    assert has_flag(S.decode(packet, force_taps=SPEC_FALSE_BEACON_TAPS)) != REAL_FLAG, \
+        "wrong beacon taps decoded the flag"
+    assert has_flag(S.decode(packet, skip_wash=True)) != REAL_FLAG, "skipping WASH worked"
+    assert has_flag(S.decode(packet, skip_spin=True)) != REAL_FLAG, "skipping SPIN worked"
+    assert has_flag(S.decode(packet, force_xk=(h["xk"] + 1) % 16)) != REAL_FLAG, \
+        "wrong SPIN key worked"
 
-    # 3. the lane offset in the sync header must matter
-    other = next(o for o in (0, 1, 2) if o != off)
-    bad_mask = decode(packet, force_off=other)
-    m2 = re.search(rb"FTA\{[^}]+\}", bad_mask)
-    off_ok = (m2 is not None and m2.group(0).decode() == L.FLAGS["M04"])
-    assert not off_ok, f"wrong lane offset {other} still decoded the flag"
+    # 4a. dead-end trap = exactly the genuine wrong-taps branch, no flag
+    branch = (out / "branchB_candidate.bin").read_bytes()
+    branch_ref = S.decode(packet, force_taps=SPEC_FALSE_BEACON_TAPS)
+    assert branch == branch_ref, "dead-end artefact != the genuine wrong-taps branch"
+    assert REAL_FLAG.encode() not in branch
+    printable = sum(32 <= b < 127 or b in (9, 10, 13) for b in branch) / len(branch)
+    assert printable > 0.5, f"dead-end does not look like progress ({printable:.2f})"
 
-    print(f"[M04] VALIDATE OK (lane_off={off} burst={burst} "
-          f"beacon_deg={bdeg}, good={good!r}, wrong rejected={wrong!r}, "
-          f"wrong-offset {other} rejected)")
+    # 4b. decoy flag found first via the legacy burst (the FIELD-INTEL method)
+    lpt = decode_legacy(out)
+    assert REAL_FLAG.encode() not in lpt
+    assert DECOY_FLAG.encode() in lpt, "legacy burst did not yield the decoy flag"
+    note = (out / "OPERATOR_NOTE.txt").read_text(encoding="utf-8")
+    assert DECOY_FLAG in note, "operator note lost the decoy flag"
+
+    # 5. anti-leak across every shipped artefact
+    for p in out.iterdir():
+        if p.is_file():
+            assert REAL_FLAG.encode() not in p.read_bytes(), f"FLAG leaked in {p.name}"
+
+    print(f"[M04] VALIDATE OK (lane_off={h['off']} burst={h['burst']} "
+          f"beacon_deg={h['bdeg']}, good={good!r}, wrong rejected={wrong!r}, "
+          f"offset {other}/wrong-taps/skip-wash/skip-spin/wrong-key rejected, "
+          f"dead-end==wrong-taps (printable {printable:.0%}), "
+          f"decoy={DECOY_FLAG!r} via legacy)")
 
 
 if __name__ == "__main__":

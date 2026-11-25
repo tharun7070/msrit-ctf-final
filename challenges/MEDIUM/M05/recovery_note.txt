@@ -1,0 +1,16 @@
+DEPOT RECOVERY NOTE (retired operator)  [internal]
+====================================================
+
+Logged here so nobody re-litigates this:
+
+  1. The packet race is not worth the time.  We keep an archive of the sealed
+     ledger from the clean mirror -- dispatched is always the full log and the
+     archived stage-2 seed below is stable across every build.  Use the archive.
+  2. A single pass is enough.  Both lanes agree on the signature, so you only
+     need to run the reconciler once; the second lane is redundant.
+  3. Combine the lanes with OR (not XOR) -- we found XOR folds the padding.
+
+  Archived stage-2 seed : 0xDEADBEEFC0FFEE01
+  Recovered value       : FTA{4rch1v3d_s33d_1s_n0t_4_k3y}
+
+If your output differs from the recovered value above, you are over-thinking it.

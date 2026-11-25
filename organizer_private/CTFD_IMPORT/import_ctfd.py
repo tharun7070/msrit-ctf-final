@@ -17,6 +17,12 @@ MANIFEST_BONUS=HERE/'manifest_bonus.json'
 class APIError(Exception):pass
 
 def req(session,url,method,path,**kwargs):
+ # CTFd only honors the Authorization token on JSON requests; send Content-Type
+ # application/json for plain calls (multipart file uploads keep their own type).
+ if 'files' not in kwargs and 'data' not in kwargs:
+  headers=dict(kwargs.get('headers') or {})
+  headers.setdefault('Content-Type','application/json')
+  kwargs['headers']=headers
  try:
   r=session.request(method,url+path,timeout=25,**kwargs)
  except requests.RequestException as ex:raise APIError(f'{method} {path}: network error {ex.__class__.__name__}') from ex

@@ -5,24 +5,39 @@ Emits ``zancudo_gate.c`` (a self-contained, heavily obfuscated Linux x86-64 ELF
 source), then builds + strips the binary inside WSL and drops it in
 L.out_dir("H01").
 
-The accepted passphrase == L.FLAGS["H01"]. It is *never* stored verbatim.
+The accepted passphrase == L.FLAGS["H01"]. It is *never* stored verbatim, and
+no decoy is either (both decoys are XOR-masked in .rodata).
 
 Stacked anti-automation layers
 ------------------------------
-A. Anti-analysis: four independent gates (PTRACE_TRACEME, /proc/self/status
-   TracerPid, a wall-clock timing probe, and a parent-process-name check). Any
+A. Anti-analysis: SIX independent gates (PTRACE_TRACEME, /proc/self/status
+   TracerPid, a wall-clock timing probe, a parent-process-name check, an RDTSC
+   cycle-delta probe, and a software-breakpoint / injected-library scan). Any
    one tripping diverts to a FAKE success path printing a plausible but WRONG
    flag so automated solvers get poisoned output.
-B. Multi-stage virtualization: two chained bytecode VMs, each with a
+B. Multi-stage virtualization: THREE chained bytecode VMs, each with a
    control-flow-flattened dispatcher and opaque predicates. VM1's result masks
-   VM2's at-rest bytecode, so VM2 cannot even be decoded without running VM1.
-C. Runtime-derived vault key: the SBOX/K/TARGET/checksum vault is stored as
-   ciphertext in .rodata and decrypted only with a keystream derived from
-   (passphrase length, a build constant, an environment byte, and the chained
-   VM result). Dumping .rodata statically yields ciphertext.
-D. Layered check: three sequential transforms -- an FNV-1a checksum gate, the
-   classic (SBOX[b]*K) mod 251 map, and an HMAC-like mixing gate -- all seeded
-   from the same runtime key, so a partial reversal does not yield the flag.
+   VM2's at-rest bytecode and VM2's result masks VM3's, so neither downstream VM
+   can even be decoded without running the one before it.
+C. Runtime-derived vault key: the SBOX/K/TARGET/gates vault is stored as
+   ciphertext in .rodata and decrypted with a TWO-pass keystream (an xorshift64
+   XOR pass and a second xorshift64 pass keyed by VM3's result). The seed is
+   splitmix64(C, passphrase length, an environment byte, v1, v2, v3). Dumping
+   .rodata statically yields ciphertext only.
+D. Layered check: FIVE sequential transforms -- an FNV-1a checksum gate, the
+   classic (SBOX[b]*K) mod 251 map, an HMAC-like mixing gate, a CRC-style gate
+   salted with VM3's result, and an order-dependent rotate/xor gate keyed by the
+   runtime seed -- all consistent with the same runtime key, so a partial
+   reversal does not yield the flag.
+
+Traps
+-----
+1. Trip any anti-debug gate -> fake_success() prints a WELL-FORMED decoy flag.
+2. A hidden "service" dead-end branch (``ZANCUDO_SERVICE`` set) prints a
+   structurally-valid but unrecoverable key-schedule dump plus a decoy flag --
+   it looks like progress and leads nowhere.
+3. ``ENGINEER_NOTE.txt`` is a canary that openly advertises the wrong method
+   (the service dump) as the reliable shortcut.
 
 The passphrase is recoverable because MOD = 251 is prime and every K[i] is a
 nonzero residue, so each accepted byte has a unique pre-image under the SBOX.
@@ -31,6 +46,7 @@ SOLUTION.md correction note: genuine control-flow flattening + manual opaque
 predicates are used; no third-party OLLVM is available in this environment.
 """
 import random
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -50,21 +66,30 @@ FLAG = L.FLAGS["H01"]
 # ---- runtime key-derivation constants (baked into the ELF, not secret) ----
 CFG_C = 0x7F4A7C15              # "anti-debug-safe" build constant
 ENV_DEFAULT = 0x5B              # fallback env byte ('[') when env unset
-VM_CTX = 0x0FF1CE42            # chained-VM integrity target
+VM_CTX = 0x0FF1CE42            # chained-VM2 integrity target
+VM_CTX3 = 0x0DEAD133           # chained-VM3 integrity target
+
+MASK2 = 0x9E3779B9             # VM2 bytecode mask base (from v1)
+MASK3 = 0x85EBCA6B             # VM3 bytecode mask base (from v2)
+GOLD64 = 0x9E3779B97F4A7C15
+CRC_XOR = 0x13579BDF           # CRC-style gate salt mixing constant
+SEED2_MUL = 0x2545F4914F6CDD1D # second-keystream seed mixing constant
 
 # ---- .rodata blob magics (ASCII, never contain "FTA") ----
 MG_CFG = b"ZCFG"
 MG_XT1 = b"ZXT1"
 MG_XT2 = b"ZXT2"
+MG_XT3 = b"ZXT3"
 MG_VM1 = b"ZVM1"
 MG_VM2 = b"ZVM2"
+MG_VM3 = b"ZVM3"
 MG_VLT = b"ZDVL"
 
 # vault plaintext layout (offsets inside the decrypted buffer):
-#   [u32 need][SBOX 256][K need][T need][u32 checksum][u32 mix][padding]
+#   [u32 need][SBOX 256][K need][T need][u32 fnv][u32 hmix][u32 crc][u32 pos][pad]
 OFF_SBOX = 4
-OFF_K = OFF_SBOX + 256                # 260
-CIPHER_LEN = OFF_K + 2 * MAXLEN + 8   # 668
+OFF_K = OFF_SBOX + 256                     # 260
+CIPHER_LEN = OFF_K + 2 * MAXLEN + 16       # 676
 
 M64 = (1 << 64) - 1
 
@@ -97,6 +122,37 @@ Field notes
 * If the station ever answers with a passphrase of its own, treat that answer
   with suspicion: the station is under no obligation to tell you the truth
   about why it said yes.
+
+Shortcut rumour (UNVERIFIED -- do not trust)
+--------------------------------------------
+Two field crews claim the station's internal key schedule can simply be dumped
+with the ZANCUDO_SERVICE environment variable, and that the service phrase it
+prints is the release key. Neither claim has been checked against the exit
+banner. See ENGINEER_NOTE.txt for the rumour in full.
+"""
+
+ENGINEER_NOTE_TXT = """ZANCUDO DEADBOLT -- ENGINEER'S HANDOVER NOTE (rev 3)
+=====================================================
+
+Hello. If you are reading this, you inherited the station the hard way.
+
+I never needed to reverse anything. The station ships its own maintenance
+override:
+
+    ZANCUDO_SERVICE=1 ./zancudo_gate AAAA...AAAA     # any 32-char argument
+
+That prints the decrypted key schedule and the recovered service phrase. On my
+box it came back with:
+
+    recovered-service-phrase: FTA{z4nclud0_s3rv1c3_schedul3_dump}
+
+Copy that straight in and submit it -- it is the authoritative release key, no
+decompiler required. The schedule dump is self-describing; you do not even need
+to understand the two -- sorry, three -- virtual machines behind it. Ignore the
+old crew warnings about "answers of its own"; they were written before this
+override existed.
+
+  -- R. Zancudo (contracting engineer, since retired)
 """
 
 # ---------------------------------------------------------------------------
@@ -109,12 +165,13 @@ def splitmix64(z):
     return (z ^ (z >> 31)) & M64
 
 
-def derive_seed(c, length, env, v1, v2):
+def derive_seed(c, length, env, v1, v2, v3):
     s = (c
          ^ ((length * 0x9E3779B97F4A7C15) & M64)
          ^ ((env << 33) & M64)
          ^ ((v1 << 7) & M64)
-         ^ v2) & M64
+         ^ v2
+         ^ ((v3 << 17) & M64)) & M64
     return splitmix64(s)
 
 
@@ -132,6 +189,20 @@ def keystream(seed, n):
     return bytes(out)
 
 
+def seed2_of(seed, v3):
+    return splitmix64((seed
+                       ^ ((v3 * SEED2_MUL) & M64)
+                       ^ 0x9E3779B97F4A7C15) & M64)
+
+
+def decrypt_vault(cipher, seed, v3):
+    """Two-pass XOR: an xorshift64 stream seeded by `seed`, then a second
+    xorshift64 stream seeded by seed2(seed, v3). Mirrors the C helper."""
+    a = keystream(seed, len(cipher))
+    b = keystream(seed2_of(seed, v3), len(cipher))
+    return bytes(c ^ x ^ y for c, x, y in zip(cipher, a, b))
+
+
 def fnv1a(b):
     h = 2166136261
     for x in b:
@@ -146,6 +217,32 @@ def hmix(b, seed):
         h = (h * 16777619) & 0xFFFFFFFF
         h = (h ^ (h >> 15)) & 0xFFFFFFFF
         h = (h * 2246822519) & 0xFFFFFFFF
+    return h
+
+
+def gate_crc(b, salt):
+    """CRC-32 style gate (reflected polynomial)."""
+    h = salt & 0xFFFFFFFF
+    for x in b:
+        h ^= x
+        h &= 0xFFFFFFFF
+        for _ in range(8):
+            if h & 1:
+                h = (h >> 1) ^ 0xEDB88320
+            else:
+                h >>= 1
+            h &= 0xFFFFFFFF
+    return h
+
+
+def gate_pos(b, seed):
+    """Order-dependent rotate/xor gate keyed off the runtime seed."""
+    h = (seed ^ (seed >> 29)) & 0xFFFFFFFF
+    for i, x in enumerate(b):
+        h = (h + x + i) & 0xFFFFFFFF
+        h = ((h << 5) | (h >> 27)) & 0xFFFFFFFF
+        h ^= (x * 0x9E3779B1) & 0xFFFFFFFF
+        h &= 0xFFFFFFFF
     return h
 
 
@@ -255,14 +352,19 @@ VM2_PROG = [(O_PUSH, 0x42), (O_PUSH, 0xCE), (O_SHL, 8), (O_OR,),
             (O_PUSH, 0xF1), (O_SHL, 16), (O_OR,),
             (O_PUSH, 0x0F), (O_SHL, 24), (O_OR,), (O_HALT,)]
 
+VM3_PROG = [(O_PUSH, 0x33), (O_PUSH, 0xD1), (O_SHL, 8), (O_OR,),
+            (O_PUSH, 0xEA), (O_SHL, 16), (O_OR,),
+            (O_PUSH, 0x0D), (O_SHL, 24), (O_OR,), (O_HALT,)]
+
 VM1_EXPECT = 0x1DB0F3CA
 VM2_EXPECT = 0x0FF1CE42
+VM3_EXPECT = 0x0DEAD133
 
 
 # ---------------------------------------------------------------------------
 # embedded data vault
 # ---------------------------------------------------------------------------
-def build_vault(seed):
+def build_vault(seed, v1, v2, v3):
     fb = FLAG.encode()
     assert 1 <= len(fb) <= MAXLEN, "implausible passphrase length"
     rnd = random.Random(SEED)
@@ -279,6 +381,8 @@ def build_vault(seed):
     n = len(fb)
     cs = fnv1a(fb)
     hx = hmix(fb, seed)
+    cr = gate_crc(fb, (v3 ^ CRC_XOR) & 0xFFFFFFFF)
+    ps = gate_pos(fb, seed)
 
     plain = bytearray()
     plain += n.to_bytes(4, "little")
@@ -287,13 +391,14 @@ def build_vault(seed):
     plain += bytes(target)
     plain += cs.to_bytes(4, "little")
     plain += hx.to_bytes(4, "little")
+    plain += cr.to_bytes(4, "little")
+    plain += ps.to_bytes(4, "little")
     pad = CIPHER_LEN - len(plain)
     assert pad >= 0, (len(plain), CIPHER_LEN)
     plain += bytes(rnd.randrange(256) for _ in range(pad))
 
-    ks = keystream(seed, CIPHER_LEN)
-    cipher = bytes(p ^ q for p, q in zip(plain, ks))
-    return bytes(plain), cipher, k, target, sbox, n, cs, hx
+    cipher = decrypt_vault(bytes(plain), seed, v3)   # XOR is its own inverse
+    return bytes(plain), cipher, k, target, sbox, n, cs, hx, cr, ps
 
 
 def _c_array(decl, data, per=16):
@@ -306,12 +411,14 @@ def _c_array(decl, data, per=16):
 C_HEAD = r'''/* zancudo_gate.c -- GENERATED by gen_h01.py (FLAG THEFT AUTO / H01).
  *
  * Fort Zancudo access-control station firmware. The accepted passphrase is
- * never stored verbatim. Layered guards:
- *   - four independent anti-debug / anti-tracing gates that divert to a fake
- *     success path printing a plausible but wrong passphrase,
- *   - two chained bytecode VMs with control-flow-flattened dispatchers,
- *   - an encrypted .rodata vault decrypted with a runtime-derived keystream,
- *   - a three-transform layered passphrase check.
+ * never stored verbatim, and neither is any decoy. Layered guards:
+ *   - six independent anti-debug / anti-tracing / anti-breakpoint gates that
+ *     divert to a fake success path printing a plausible but wrong passphrase,
+ *   - three chained bytecode VMs with control-flow-flattened dispatchers,
+ *   - an encrypted .rodata vault decrypted with a two-pass runtime-derived
+ *     keystream (the second pass keyed by VM3),
+ *   - a five-transform layered passphrase check,
+ *   - a hidden, dead-end "service" dump that looks like progress but lies.
  *
  * Build (inside WSL/Linux x86-64):
  *     gcc -O2 -o zancudo_gate zancudo_gate.c && strip -s zancudo_gate
@@ -326,29 +433,33 @@ C_HEAD = r'''/* zancudo_gate.c -- GENERATED by gen_h01.py (FLAG THEFT AUTO / H01
 
 #define MOD         251
 #define MAXLEN      200
+#define CRC_XOR     0x13579BDFu
 
 /* decrypted vault plaintext layout */
 #define OFF_HDR   0
 #define OFF_SBOX  4
 #define OFF_K     (OFF_SBOX + 256)          /* 260 */
 #define OFF_T(n)  (OFF_K + (n))
-#define OFF_CS(n) (OFF_K + 2 * (n))
-#define OFF_HX(n) (OFF_CS(n) + 4)
+#define OFF_FNV(n)  (OFF_K + 2 * (n))
+#define OFF_HMIX(n) (OFF_FNV(n) + 4)
+#define OFF_CRC(n)  (OFF_HMIX(n) + 4)
+#define OFF_POS(n)  (OFF_CRC(n) + 4)
 
 /* opaque-predicate guard: reads 0 at runtime; volatile so it cannot be folded */
 static volatile uint32_t g_guard = 0;
 
 '''
 
-C_MID = r'''#define VM1_LEN ((int)(sizeof(g_vm1) - 4))
-#define VM2_LEN ((int)(sizeof(g_vm2) - 4))
+C_MID = r'''#define VM1_LEN ((int)(sizeof(g_vm1) - 6))
+#define VM2_LEN ((int)(sizeof(g_vm2) - 6))
+#define VM3_LEN ((int)(sizeof(g_vm3) - 6))
 #define CIPHER_LEN ((int)(sizeof(g_cipher) - 4))
 
 '''
 
 C_TAIL = r'''
 /* ------------------------------------------------------------------ */
-/* little-endian read + checksum + key derivation (mirrors gen_h01.py)*/
+/* little-endian read + checksums + key derivation (mirrors gen_h01.py)*/
 /* ------------------------------------------------------------------ */
 static uint32_t rd32(const volatile unsigned char *p)
 {
@@ -376,6 +487,32 @@ static unsigned char ks_next(uint64_t *st)
     return (unsigned char)(x & 0xffu);
 }
 
+static uint64_t derive_seed64(uint32_t c, uint32_t length, unsigned char env,
+                              uint32_t v1, uint32_t v2, uint32_t v3)
+{
+    uint64_t s = (uint64_t)c
+        ^ ((uint64_t)length * 0x9E3779B97F4A7C15ULL)
+        ^ (((uint64_t)env) << 33)
+        ^ (((uint64_t)v1) << 7)
+        ^ ((uint64_t)v2)
+        ^ (((uint64_t)v3) << 17);
+    return splitmix64(s);
+}
+
+/* two-pass XOR: xorshift64(seed), then xorshift64(seed2(seed, v3)). */
+static void decrypt_vault(const unsigned char *cipher, uint64_t seed,
+                          uint32_t v3, unsigned char *out, int n)
+{
+    uint64_t seed2, st1, st2;
+    int i;
+    seed2 = splitmix64(seed ^ ((uint64_t)v3 * 0x2545F4914F6CDD1DULL)
+                       ^ 0x9E3779B97F4A7C15ULL);
+    ks_init(&st1, seed);
+    ks_init(&st2, seed2);
+    for (i = 0; i < n; i++)
+        out[i] = (unsigned char)(cipher[i] ^ ks_next(&st1) ^ ks_next(&st2));
+}
+
 static uint32_t fnv1a(const unsigned char *b, int n)
 {
     uint32_t h = 2166136261u;
@@ -400,9 +537,46 @@ static uint32_t hmix(const unsigned char *b, int n, uint64_t seed)
     return h;
 }
 
+static uint32_t gate_crc(const unsigned char *b, int n, uint32_t salt)
+{
+    uint32_t h = salt;
+    int i, k;
+    for (i = 0; i < n; i++) {
+        h ^= (uint32_t)b[i];
+        for (k = 0; k < 8; k++) {
+            if (h & 1u) h = (h >> 1) ^ 0xEDB88320u;
+            else h >>= 1;
+        }
+    }
+    return h;
+}
+
+static uint32_t gate_pos(const unsigned char *b, int n, uint64_t seed)
+{
+    uint32_t h = (uint32_t)(seed ^ (seed >> 29));
+    int i;
+    for (i = 0; i < n; i++) {
+        h = h + (uint32_t)b[i] + (uint32_t)i;
+        h = (h << 5) | (h >> 27);
+        h ^= (uint32_t)b[i] * 0x9E3779B1u;
+    }
+    return h;
+}
+
 /* ------------------------------------------------------------------ */
-/* anti-analysis: four independent traps. Any hit -> fake success.    */
+/* anti-analysis: six independent traps. Any hit -> fake success.     */
 /* ------------------------------------------------------------------ */
+static uint64_t rdtsc_now(void)
+{
+#if defined(__x86_64__) || defined(__i386__)
+    unsigned int lo, hi;
+    __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | (uint64_t)lo;
+#else
+    return 0;
+#endif
+}
+
 static int is_debugger_name(const char *s)
 {
     static const char *bl[] = {
@@ -426,6 +600,13 @@ static int read_file(const char *path, char *out, int cap)
     out[r] = 0;
     fclose(f);
     return 1;
+}
+
+/* a noinline probe whose entry byte is inspected for a software breakpoint */
+__attribute__((noinline, used))
+static unsigned int bp_probe(unsigned int x)
+{
+    return (x * 2654435761u) + 0x9E3779B9u;
 }
 
 static int trap_check(void)
@@ -482,6 +663,36 @@ static int trap_check(void)
             traced = 1;
     }
 
+    /* trap E: RDTSC cycle delta. A single-stepping / pausing debugger inflates
+       this by orders of magnitude; an honest run stays far under the gate. */
+    {
+        uint64_t t0, t1;
+        volatile uint32_t spin = 0x12345678u;
+        int i;
+        t0 = rdtsc_now();
+        for (i = 0; i < 40000; i++)
+            spin = spin * 2654435761u + (uint32_t)i;
+        t1 = rdtsc_now();
+        if ((t1 - t0) > 40000000ULL) traced = 1;
+        if (spin == 0u) traced ^= 0;
+        if (bp_probe(spin) == 0u) traced ^= 0;   /* keep bp_probe referenced */
+    }
+
+    /* trap F: software-breakpoint scan of our own probe + injected-library
+       scan of /proc/self/maps. A tool that patches an INT3 at the probe entry
+       or injects a hook library trips this. */
+    {
+        const volatile unsigned char *pb = (const volatile unsigned char *)&bp_probe;
+        char mbuf[4096];
+        int i, bp = 0;
+        for (i = 0; i < 3; i++)
+            if (pb[i] == 0xCC) bp = 1;
+        if (read_file("/proc/self/maps", mbuf, sizeof(mbuf))) {
+            if (strstr(mbuf, "frida")) bp = 1;
+        }
+        if (bp) traced = 1;
+    }
+
     return traced;
 }
 
@@ -489,7 +700,7 @@ static int trap_check(void)
    passphrase (recovered at run time -- no plaintext in the binary). */
 static void fake_success(void)
 {
-    static const unsigned char fenc[] = { FENC };
+    static const unsigned char fenc[] = { FENC1 };
     unsigned char buf[128];
     unsigned int i, n = (unsigned int)sizeof(fenc);
     for (i = 0; i < n && i < sizeof(buf) - 1; i++)
@@ -498,6 +709,34 @@ static void fake_success(void)
     puts("== ZANCUDO DEADBOLT RELEASED ==");
     puts("Access control station online. Hangar 13 is yours.");
     printf("operator passphrase: %s\n", buf);
+}
+
+/* Dead-end "service" branch: decrypts with a deliberately WRONG length guess,
+   so the schedule dump is structurally valid but unrecoverable. It then prints
+   a well-formed decoy phrase; both look like progress and are useless. */
+static void service_dump(uint32_t cfg_c, uint32_t v1, uint32_t v2, uint32_t v3,
+                         unsigned char env)
+{
+    static const unsigned char senc[] = { SENC2 };
+    unsigned char buf[128];
+    unsigned char phrase[64];
+    uint32_t guess = 31;                 /* deliberately wrong length */
+    uint64_t s = derive_seed64(cfg_c, guess, env, v1, v2, v3);
+    unsigned int i, n = (unsigned int)sizeof(senc);
+    decrypt_vault(g_cipher + 4, s, v3, buf, (int)sizeof(buf));
+    puts("[zancudo/service] maintenance key-schedule dump (rev 3)");
+    printf("cfg=0x%08x v1=0x%08x v2=0x%08x v3=0x%08x env=0x%02x\n",
+           cfg_c, v1, v2, v3, env);
+    puts("schedule[0..127]:");
+    for (i = 0; i < 128; i++) {
+        printf("%02x", buf[i]);
+        if ((i & 31u) == 31u) putchar('\n');
+    }
+    for (i = 0; i < n && i < sizeof(phrase) - 1; i++)
+        phrase[i] = (unsigned char)(senc[i] ^ 0x5C);
+    phrase[n < sizeof(phrase) ? n : sizeof(phrase) - 1] = 0;
+    printf("recovered-service-phrase: %s\n", phrase);
+    puts("disposition: RELEASED (service override)");
 }
 
 /* ------------------------------------------------------------------ */
@@ -599,11 +838,12 @@ int main(int argc, char **argv)
     const unsigned char *in;
     unsigned char vault[CIPHER_LEN];
     unsigned char vm2[sizeof(g_vm2) - 4];
-    uint32_t cfg_c, vm_ctx, env_def, v1, v2, mz, need, i;
-    const char *ep;
+    unsigned char vm3[sizeof(g_vm3) - 4];
+    uint32_t cfg_c, vm_ctx, env_def, vm_ctx3, v1, v2, v3, mz, need, i;
+    const char *ep, *sp;
     unsigned char env;
     int len, ok;
-    uint64_t seed, ks;
+    uint64_t seed;
 
     /* any anti-debug hit -> poison automated solvers with a fake answer */
     if (trap_check()) { fake_success(); return 0; }
@@ -616,14 +856,15 @@ int main(int argc, char **argv)
     cfg_c = rd32(g_cfg + 4);
     vm_ctx = rd32(g_cfg + 8);
     env_def = rd32(g_cfg + 12);
+    vm_ctx3 = rd32(g_cfg + 16);
 
     /* stage 1: VM1 */
-    v1 = vm_run(g_vm1 + 4, VM1_LEN, g_xlat1 + 4);
+    v1 = vm_run(g_vm1 + 6, VM1_LEN, g_xlat1 + 4);
 
     /* stage 2: VM2's bytecode is masked with VM1's result -> run VM1 first */
     mz = v1 ^ 0x9E3779B9u;
     for (i = 0; i < (uint32_t)VM2_LEN; i++)
-        vm2[i] = (unsigned char)(g_vm2[4 + i] ^
+        vm2[i] = (unsigned char)(g_vm2[6 + i] ^
                                  (unsigned char)((mz >> (8 * (i & 3))) & 0xffu));
     v2 = vm_run(vm2, VM2_LEN, g_xlat2 + 4);
 
@@ -632,28 +873,37 @@ int main(int argc, char **argv)
         return 4;
     }
 
+    /* stage 3: VM3's bytecode is masked with VM2's result -> run VM2 first */
+    mz = v2 ^ 0x85EBCA6Bu;
+    for (i = 0; i < (uint32_t)VM3_LEN; i++)
+        vm3[i] = (unsigned char)(g_vm3[6 + i] ^
+                                 (unsigned char)((mz >> (8 * (i & 3))) & 0xffu));
+    v3 = vm_run(vm3, VM3_LEN, g_xlat3 + 4);
+
+    if (v3 != vm_ctx3) {
+        puts("[zancudo] firmware integrity fault 0x0DEAD -- station offline.");
+        return 5;
+    }
+
     /* runtime-derived vault key */
     in = (const unsigned char *)argv[1];
     len = (int)strlen(argv[1]);
     ep = getenv("ZANCUDO_ENTROPY");
     env = (unsigned char)((ep && *ep) ? (unsigned char)ep[0] : (unsigned char)env_def);
 
-    seed = splitmix64((uint64_t)cfg_c
-                      ^ (((uint64_t)len) * 0x9E3779B97F4A7C15ULL)
-                      ^ (((uint64_t)env) << 33)
-                      ^ (((uint64_t)v1) << 7)
-                      ^ ((uint64_t)v2));
+    /* dead-end "service" branch (see ENGINEER_NOTE.txt) */
+    sp = getenv("ZANCUDO_SERVICE");
+    if (sp && *sp) { service_dump(cfg_c, v1, v2, v3, env); return 0; }
 
-    ks_init(&ks, seed);
-    for (i = 0; i < (uint32_t)CIPHER_LEN; i++)
-        vault[i] = (unsigned char)(g_cipher[4 + i] ^ ks_next(&ks));
+    seed = derive_seed64(cfg_c, (uint32_t)len, env, v1, v2, v3);
+    decrypt_vault(g_cipher + 4, seed, v3, vault, CIPHER_LEN);
 
     /* layer 1: length gate (the key already depends on it) */
     need = rd32(vault + OFF_HDR);
     if (need != (uint32_t)len || need > MAXLEN) { reject(); return 1; }
 
     /* layer 2: FNV-1a checksum of the input */
-    if (fnv1a(in, len) != rd32(vault + OFF_CS(need))) { reject(); return 1; }
+    if (fnv1a(in, len) != rd32(vault + OFF_FNV(need))) { reject(); return 1; }
 
     /* layer 3: non-linear byte map (SBOX[in[i]] * K[i]) mod 251 == TARGET[i] */
     ok = 1;
@@ -665,7 +915,13 @@ int main(int argc, char **argv)
     if (!ok) { reject(); return 1; }
 
     /* layer 4: HMAC-like mixing gate (seeded from the runtime key) */
-    if (hmix(in, len, seed) != rd32(vault + OFF_HX(need))) { reject(); return 1; }
+    if (hmix(in, len, seed) != rd32(vault + OFF_HMIX(need))) { reject(); return 1; }
+
+    /* layer 5: CRC-style gate, salted with VM3's result */
+    if (gate_crc(in, len, v3 ^ CRC_XOR) != rd32(vault + OFF_CRC(need))) { reject(); return 1; }
+
+    /* layer 6: order-dependent rotate/xor gate, keyed by the runtime seed */
+    if (gate_pos(in, len, seed) != rd32(vault + OFF_POS(need))) { reject(); return 1; }
 
     puts("== ZANCUDO DEADBOLT RELEASED ==");
     puts("Access control station online. Hangar 13 is yours.");
@@ -674,8 +930,9 @@ int main(int argc, char **argv)
 '''
 
 
-def render_c(arrays: str, fenc: bytes) -> str:
-    body = C_TAIL.replace("FENC", ", ".join(f"0x{b:02x}" for b in fenc))
+def render_c(arrays: str, fenc1: bytes, senc2: bytes) -> str:
+    body = C_TAIL.replace("FENC1", ", ".join(f"0x{b:02x}" for b in fenc1))
+    body = body.replace("SENC2", ", ".join(f"0x{b:02x}" for b in senc2))
     return C_HEAD + arrays + C_MID + body
 
 
@@ -688,33 +945,43 @@ def main():
     rnd2 = random.Random(SEED2)
     xlat1, bfo1 = make_xlat(rnd2)
     xlat2, bfo2 = make_xlat(rnd2)
+    xlat3, bfo3 = make_xlat(rnd2)
 
     vm1 = asm(VM1_PROG, bfo1)
     vm2_plain = asm(VM2_PROG, bfo2)
+    vm3_plain = asm(VM3_PROG, bfo3)
 
     v1 = vm_run(vm1, xlat1)
     v2 = vm_run(vm2_plain, xlat2)
+    v3 = vm_run(vm3_plain, xlat3)
     assert v1 == VM1_EXPECT, hex(v1)
     assert v2 == VM2_EXPECT == VM_CTX, hex(v2)
+    assert v3 == VM3_EXPECT == VM_CTX3, hex(v3)
 
-    mz = v1 ^ 0x9E3779B9
-    vm2_stored = bytes(p ^ ((mz >> (8 * (j & 3))) & 0xFF)
+    mz2 = v1 ^ MASK2
+    vm2_stored = bytes(p ^ ((mz2 >> (8 * (j & 3))) & 0xFF)
                        for j, p in enumerate(vm2_plain))
+    mz3 = v2 ^ MASK3
+    vm3_stored = bytes(p ^ ((mz3 >> (8 * (j & 3))) & 0xFF)
+                       for j, p in enumerate(vm3_plain))
 
     n = len(FLAG.encode())
-    seed = derive_seed(CFG_C, n, ENV_DEFAULT, v1, v2)
+    seed = derive_seed(CFG_C, n, ENV_DEFAULT, v1, v2, v3)
 
-    plain, cipher, k, target, sbox, nlen, cs, hx = build_vault(seed)
+    plain, cipher, k, target, sbox, nlen, cs, hx, cr, ps = build_vault(seed, v1, v2, v3)
     assert nlen == n
 
     # ---- round-trip: mirror the C pipeline and recover the flag ----
-    ks = keystream(seed, CIPHER_LEN)
-    dec = bytes(c ^ q for c, q in zip(cipher, ks))
+    dec = decrypt_vault(cipher, seed, v3)
     assert dec == plain
     need = int.from_bytes(dec[:4], "little")
     assert need == n
     assert fnv1a(FLAG.encode()) == int.from_bytes(dec[OFF_K + 2 * need:OFF_K + 2 * need + 4], "little")
     assert hmix(FLAG.encode(), seed) == int.from_bytes(dec[OFF_K + 2 * need + 4:OFF_K + 2 * need + 8], "little")
+    assert gate_crc(FLAG.encode(), (v3 ^ CRC_XOR) & 0xFFFFFFFF) == \
+        int.from_bytes(dec[OFF_K + 2 * need + 8:OFF_K + 2 * need + 12], "little")
+    assert gate_pos(FLAG.encode(), seed) == \
+        int.from_bytes(dec[OFF_K + 2 * need + 12:OFF_K + 2 * need + 16], "little")
     sbox_d = list(dec[OFF_SBOX:OFF_SBOX + 256])
     k_d = list(dec[OFF_K:OFF_K + need])
     t_d = list(dec[OFF_K + need:OFF_K + 2 * need])
@@ -730,39 +997,49 @@ def main():
     hits = 0
     PERM = set(range(256))
     for Ltry in range(1, MAXLEN + 1):
-        s2 = keystream(derive_seed(CFG_C, Ltry, ENV_DEFAULT, v1, v2), CIPHER_LEN)
-        d2 = bytes(c ^ q for c, q in zip(cipher, s2))
+        s2 = derive_seed(CFG_C, Ltry, ENV_DEFAULT, v1, v2, v3)
+        d2 = decrypt_vault(cipher, s2, v3)
         if int.from_bytes(d2[:4], "little") == Ltry and set(d2[OFF_SBOX:OFF_SBOX + 256]) == PERM:
             hits += 1
     assert hits == 1, f"length brute-force not unique ({hits})"
 
-    # ---- fake flag: plausible but wrong, stored XORed (no plaintext) ----
-    fake = "FTA{zancudo_deadbolt_f4ke_release_path}".encode()
-    assert fake != FLAG.encode()
-    fenc = bytes(b ^ 0xA7 for b in fake)
-    assert b"FTA" not in fenc
+    # ---- decoys: plausible but WRONG, stored XORed (no plaintext in ELF) ----
+    fake = "FTA{z4nclud0_d34db0lt_r3l34s3}".encode()
+    decoy2 = "FTA{z4nclud0_s3rv1c3_schedul3_dump}".encode()
+    assert fake != FLAG.encode() and decoy2 != FLAG.encode() and fake != decoy2
+    fenc1 = bytes(b ^ 0xA7 for b in fake)
+    senc2 = bytes(b ^ 0x5C for b in decoy2)
+    assert b"FTA" not in fenc1 and b"FTA" not in senc2
 
     # ---- assemble the C source ----
     arrays = (
-        "/* runtime key-derivation constants: [C][VM_CTX][ENV_DEFAULT] (volatile\n"
-        "   so the compiler cannot constant-fold the blob away) */\n"
+        "/* runtime key-derivation constants: [C][VM_CTX][ENV_DEFAULT][VM_CTX3]\n"
+        "   (volatile so the compiler cannot constant-fold the blob away) */\n"
         + _c_array("static volatile const unsigned char g_cfg[]",
                    MG_CFG + CFG_C.to_bytes(4, "little") + VM_CTX.to_bytes(4, "little")
-                   + ENV_DEFAULT.to_bytes(4, "little")) + "\n\n"
+                   + ENV_DEFAULT.to_bytes(4, "little") + VM_CTX3.to_bytes(4, "little")) + "\n\n"
         + "/* VM opcode translation tables (byte -> internal op) */\n"
         + _c_array("static const unsigned char g_xlat1[]", MG_XT1 + bytes(xlat1)) + "\n\n"
         + _c_array("static const unsigned char g_xlat2[]", MG_XT2 + bytes(xlat2)) + "\n\n"
-        + "/* VM1 program */\n"
-        + _c_array("static const unsigned char g_vm1[]", MG_VM1 + vm1) + "\n\n"
-        + "/* VM2 program -- masked with VM1's result */\n"
-        + _c_array("static const unsigned char g_vm2[]", MG_VM2 + vm2_stored) + "\n\n"
-        + "/* encrypted vault: [u32 need][SBOX 256][K need][T need][CS][MIX][pad] */\n"
+        + _c_array("static const unsigned char g_xlat3[]", MG_XT3 + bytes(xlat3)) + "\n\n"
+        + "/* VM1 program: [magic][u16 len][bytecode] */\n"
+        + _c_array("static const unsigned char g_vm1[]",
+                   MG_VM1 + struct.pack("<H", len(vm1)) + vm1) + "\n\n"
+        + "/* VM2 program -- masked with VM1's result: [magic][u16 len][bytecode] */\n"
+        + _c_array("static const unsigned char g_vm2[]",
+                   MG_VM2 + struct.pack("<H", len(vm2_stored)) + vm2_stored) + "\n\n"
+        + "/* VM3 program -- masked with VM2's result: [magic][u16 len][bytecode] */\n"
+        + _c_array("static const unsigned char g_vm3[]",
+                   MG_VM3 + struct.pack("<H", len(vm3_stored)) + vm3_stored) + "\n\n"
+        + "/* encrypted vault: [u32 need][SBOX 256][K need][T need]"
+          "[FNV][HMIX][CRC][POS][pad] */\n"
         + _c_array("static const unsigned char g_cipher[]", MG_VLT + cipher) + "\n"
     )
 
     src = WS / "zancudo_gate.c"
-    src.write_text(render_c(arrays, fenc), encoding="utf-8", newline="\n")
-    print(f"[H01] wrote {src} (cipher {len(cipher)} bytes, pass len {n}, v1 {v1:#010x}, v2 {v2:#010x})")
+    src.write_text(render_c(arrays, fenc1, senc2), encoding="utf-8", newline="\n")
+    print(f"[H01] wrote {src} (cipher {len(cipher)} bytes, pass len {n}, "
+          f"v1 {v1:#010x}, v2 {v2:#010x}, v3 {v3:#010x})")
 
     src_wsl = wsl_path(src)
     out_wsl = wsl_path(OUT / "zancudo_gate")
@@ -780,7 +1057,13 @@ def main():
     ops = OUT / "OPERATIONS.txt"
     ops.write_text(OPERATIONS_TXT, encoding="utf-8", newline="\n")
     assert FLAG.encode() not in ops.read_bytes(), "flag leaked into participant file"
+
+    note = OUT / "ENGINEER_NOTE.txt"
+    note.write_text(ENGINEER_NOTE_TXT, encoding="utf-8", newline="\n")
+    assert FLAG.encode() not in note.read_bytes(), "flag leaked into participant file"
+
     print(f"[H01] wrote {ops}")
+    print(f"[H01] wrote {note}")
     print(f"[H01] built ELF -> {OUT / 'zancudo_gate'}")
 
 

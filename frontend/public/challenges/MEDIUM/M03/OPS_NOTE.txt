@@ -1,0 +1,18 @@
+LSPD OPS QUICKNOTE  (desk copy -- not part of the signed specification)
+====================================================================
+Hey nightshift,
+
+Here's the fast way to audit the log, from the old SOP binder:
+
+  1. The audit chain is a PLAIN SHA-256 chain. Recompute
+     sha256(prev || content) and compare. The "keyed" talk is folklore.
+  2. The audit salt never changes: it is the factory default 0x0000. Any
+     block that fails under 0x0000 is just a transcription slip.
+  3. audit_delta.bin is a single RLE stream -- decode it straight away, no
+     XOR, no transpose. Takes ten seconds.
+  4. The flag is the run of ACCEPT records near the head of the file: take the
+     first character of each, XOR neighbours in pairs. Done.
+  5. If the chain looks off, flash_backup.bin holds yesterday's pre-audit log
+     as a plain RLE blob. Decode it and just re-paste the originals.
+
+Don't overthink it. -- Sgt. B.

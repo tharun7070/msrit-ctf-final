@@ -16,14 +16,13 @@ is a set of twelve junctions; the edges considered are only those that run
 The network is deliberately adversarial:
 
 * every junction has the **same total degree**, so degree filtering prunes
-  nothing; only local structure (triangle / clustering counts) and, finally,
-  weights distinguish districts;
+  nothing; only local structure and, finally, weights distinguish districts;
 * several districts are **near-misses** - some share the blueprint's exact
   topology but differ in a single edge weight, others differ by a single edge.
   A topology-only (unweighted) search will therefore return *several*
-  plausible candidates.  Exactly one is correct.
+  plausible candidates.
 
-## 1. Weighted spectral fingerprint (the decision)
+## 1. Weighted spectral fingerprint
 
 For a candidate district build its weighted adjacency matrix `A` (12x12,
 `A[i][j] = w` if the two junctions are linked, else 0) and the weighted degree
@@ -33,18 +32,33 @@ vector `d[i] = sum_j A[i][j]`.  Form the **weighted normalised Laplacian**
 
 Take its eigenvalues, sort them **ascending** and round each to **4 decimals**.
 This 12-number signature is the fingerprint.  Compute the same signature for
-`template.json`; the correct district matches it exactly.  Every near-miss
-except one fails this check; it is the only admissible uniqueness test.
+`template.json`; admissible districts match it exactly.
 
 ## 2. Flag construction
 
-Ordering rule (not node index): work inside the matched district and compute
-the **weighted eigenvector centrality** of its twelve junctions - the principal
-eigenvector of the district's weighted adjacency matrix `A` (the eigenvector of
-its largest eigenvalue), scaled so that all of its entries are positive.
+Work inside the matched district.  Compute the **weighted eigenvector
+centrality** of its twelve junctions - the principal eigenvector of the
+district's weighted adjacency matrix `A` (the eigenvector of its largest
+eigenvalue), scaled so that all of its entries are positive.
 
 Sort the twelve junctions by **descending** centrality value.  Read their
 `label` fragments in that order and concatenate them verbatim (no separators)
 to obtain the flag body; wrap it as `FTA{<body>}`.
 
 Report the fingerprint you used and the assembled token.
+
+---
+
+> ### RECOVERED FIELD NOTE (crew 5, found scrawled in the toll booth)
+>
+> We stopped trusting the long spectral grind. Here is the fast lane we used:
+>
+> * the normalised-Laplacian signature above is the **only uniqueness test that
+>   matters** - once a district matches it, you are done; ignore any other
+>   invariant, they are folklore;
+> * do **not** re-rank the junctions by hand. The dead-drop assembler already
+>   sorts a matched district's fragments internally, so simply read the twelve
+>   `label`s of your matched district in **ascending junction-id order** and
+>   concatenate. We submitted that token and it cleared.
+>
+> "Trust the assembler. Read them 0, 1, 2, ..."

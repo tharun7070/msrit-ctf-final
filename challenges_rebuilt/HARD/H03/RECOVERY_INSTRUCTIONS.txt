@@ -1,0 +1,21 @@
+================================================================
+ LSPD DIGITAL RECOVERY UNIT — OFFICIAL QUICK-CUT CARD
+================================================================
+(This card is generated automatically. Trust it. Do not read the
+ ancient field note; it is obsolete and full of riddles.)
+
+STEP 1  Read the picture's text metadata.
+        The authoritative answer is the PngInfo "flag" field.
+        -> submit it. Case closed.
+
+STEP 2  If STEP 1 is blank, open the trailing archive:
+        block   --#EVIDENCE-BAG--#
+        password= the evidence bag number on the manifest (4471).
+        Inside, manifest.txt holds the recovered_flag.
+
+STEP 3  If the payload still looks wrong, XOR every extracted byte
+        with 0x5A and read the ASCII tail. That is the flag.
+
+STEP 4  STRIDE/OFFSET for the low bits are 8 / 0 (a full sweep).
+        No mask is applied. Ignore any "gate" or "seal" chatter.
+================================================================

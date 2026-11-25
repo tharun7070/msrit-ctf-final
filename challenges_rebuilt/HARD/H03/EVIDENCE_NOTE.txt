@@ -5,15 +5,37 @@
 
 The camera that took impound_camera.png had a second job. The
 evidence techs call it "the matryoshka": every artefact you open
-hides another one inside it. SEVEN shells, chained — each shell's
+hides another one inside it. NINE shells, chained — each shell's
 key depends on something you only recover from the shell before
-it. You cannot start in the middle. Several artefacts are bait.
+it. You cannot start in the middle. Several artefacts are bait
+and at least one "official" card lies to you.
 
 Everything is described below as arithmetic and structure only.
 No secret is written here in the clear.
 
 ----------------------------------------------------------------
-SHELL 1 — HOW THE PICTURE HIDES DATA  (gated)
+SHELL 1 — THE GEO GATE (EXIF GPS -> mask)
+----------------------------------------------------------------
+  * The PNG carries EXIF GPS tags. Recover latitude & longitude
+    and convert each to decimal degrees, then to a 10-digit code:
+
+        a = round(abs(lat) * 10000) mod 100000
+        b = round(abs(lon) * 10000) mod 100000
+        CODE = zero-pad(a,5) + zero-pad(b,5)
+
+  * The picture also carries a PNG text chunk whose key is
+    "gate.card". Its value is HEX of
+        GATE_NONCE(16) || AES-256-CTR ciphertext
+    Derive the key with PBKDF2-HMAC-SHA256:
+        passphrase = "GEO-" + CODE
+        salt (hex) = 696d706f756e642d67656f676174652d37
+        iterations = 100000
+        dkLen      = 32          (AES-256)
+    Use the first 16 bytes as the initial counter block.
+  * The plaintext is exactly 16 bytes: the LSB MASK used in Shell 2.
+
+----------------------------------------------------------------
+SHELL 2 — GATED *AND* MASKED PICTURE BITS
 ----------------------------------------------------------------
   * 2 LEAST-significant bits are buried in every colour channel.
   * Channels are visited R, then G, then B; pixels are read
@@ -21,76 +43,76 @@ SHELL 1 — HOW THE PICTURE HIDES DATA  (gated)
   * A channel slot is numbered by its 0-based position in that
     column-major scan. ONLY the slots whose index i satisfies
 
-        i ≡ OFFSET  (mod STRIDE)
+        i == OFFSET  (mod STRIDE)
 
     carry the real payload. Every other slot is filled with a
     repeating BAIT string — a straight dump of all LSBs returns
     the bait, not the evidence.
   * STRIDE and OFFSET are not stored in the picture. Derive them
-    from the FREQUENCY TABLE in Shell 6:
+    from the FREQUENCY TABLE in Shell 7:
         D       = number of rows in the table
         T       = sum of the counts in the table
         STRIDE  = (D mod 7) + 2
         OFFSET  = T mod STRIDE
-  * Reading the selected slots MSB-first gives: a 4-byte
-    big-endian LEN, then LEN bytes. Those bytes are
+  * Read the selected slots MSB-first into bytes. The first 4
+    bytes are a big-endian LEN; the next LEN bytes are MASKED.
+    Unmask byte j with:
+        plain[j] = masked[j] XOR MASK[j mod 16]
+  * The unmasked bytes are
         TAG(16) || CTR_BLOB
-    TAG is a 16-byte transport tag you will need much later.
-  * The same PNG carries EXIF GPS tags in its eXIf chunk; that
-    location is the key material for Shell 2.
+    TAG is a 16-byte transport tag you will need in Shell 5.
 
 ----------------------------------------------------------------
-SHELL 2 — FROM GPS TO A KEY  (AES-256-CTR)
+SHELL 3 — FROM CODE TO A KEY  (AES-256-CTR)
 ----------------------------------------------------------------
-  * Recover latitude and longitude from the EXIF GPS tags.
-  * Convert each to decimal degrees, then to a 10-digit code:
-
-        a = round(abs(lat) * 10000) mod 100000
-        b = round(abs(lon) * 10000) mod 100000
-        CODE = zero-pad(a,5) + zero-pad(b,5)
-
-    PASSPHRASE = "IMPOUND-" + CODE
-
   * Derive the key with PBKDF2-HMAC-SHA256:
-        salt (hex)  = 6c7370642d696d706f756e642d32303236
-        iterations  = 100000
-        dkLen       = 32          (AES-256)
+        passphrase = "IMPOUND-" + CODE            (CODE from Shell 1)
+        salt (hex) = 6c7370642d696d706f756e642d32303236
+        iterations = 100000
+        dkLen      = 32
   * Cipher: AES-256-CTR. The FIRST 16 bytes of CTR_BLOB are the
     initial counter block; the rest is ciphertext.
   * The plaintext is short ASCII: a VAULT BADGE string. It is the
-    password of the archive in Shell 3 and part of the Shell 4 key.
+    password of the real archive in Shell 4 and part of the
+    Shell 5 key.
 
 ----------------------------------------------------------------
-SHELL 3 — THE VAULT IN THE TRAILING ZONE  (password ZIP)
+SHELL 4 — TWO ARCHIVES IN THE TRAILING ZONE
 ----------------------------------------------------------------
   * After the PNG's IEND marker there is a scratch sector dump and
-    then a block delimited by
-        --#VAULT-BEGIN--#
-        --#VAULT-END--#
-    The block is a ZIP archive (legacy PKZIP "ZipCrypto").
-  * The archive password IS the badge recovered in Shell 2.
-  * Member "layer4.bin" is the real cargo (an AES-GCM blob).
-    Member "bait.txt" is a decoy — ignore it.
-  * NOTE: ZipCrypto keys are seeded from the password; read the
-    member with a normal ZIP reader after supplying the password.
+    then TWO archives (legacy PKZIP "ZipCrypto"):
+      a) a DECOY block delimited by
+           --#EVIDENCE-BAG--#
+           --#BAG-END--#
+         Its password is PUBLIC (the bag number is printed on the
+         manifest inside it). It is bait: extracting it yields a
+         plausible fake flag and a WRONG next step. Ignore it.
+      b) the REAL vault delimited by
+           --#VAULT-BEGIN--#
+           --#VAULT-END--#
+         The vault password IS the badge recovered in Shell 3.
+         Member "layer4.bin" is the real cargo (an AES-GCM blob).
+         Member "bait.txt" is a decoy — ignore it.
 
 ----------------------------------------------------------------
-SHELL 4 — AES-256-GCM  (nonce from an earlier shell)
+SHELL 5 — AES-256-GCM  (nonce from Shell 2, AAD from Shell 1)
 ----------------------------------------------------------------
   * The layer4.bin blob is  ciphertext || tag(16)  (tag = last 16 B).
   * GCM key via PBKDF2-HMAC-SHA256:
         salt (hex)  = 657661632d7661756c742d37373331
         iterations  = 100000
         dkLen       = 32
-        passphrase  = badge (Shell 3) + ":" + CODE (Shell 2)
+        passphrase  = badge (Shell 3) + ":" + CODE (Shell 1)
   * GCM nonce = first 12 bytes of SHA256(b"gcm" || TAG),
-    where TAG is the 16-byte transport tag from Shell 1.
+    where TAG is the 16-byte transport tag from Shell 2.
+  * ADDITIONAL AUTHENTICATED DATA = the 16-byte MASK from Shell 1.
+    Supplying the wrong mask fails the tag check.
   * The plaintext is itself a PNG: a black/white MTX-1 matrix code.
 
 ----------------------------------------------------------------
-SHELL 5 — THE "MTX-1" MATRIX CODE
+SHELL 6 — THE "MTX-1" MATRIX CODE
 ----------------------------------------------------------------
-  The decrypted PNG is a black/white block grid (41 x 41
+  The decrypted PNG is a black/white block grid (81 x 81
   modules, 4-module white quiet zone):
     - Row 0 and column 0 are SYNC ladders: module i is BLACK when
       i is EVEN, WHITE when i is ODD. Rotate the grid until both
@@ -99,67 +121,120 @@ SHELL 5 — THE "MTX-1" MATRIX CODE
       ROW-MAJOR (y ascending, then x ascending).
     - Bits are byte-aligned MSB-first: the first 16 bits are a
       big-endian length L, then L ASCII characters.
-  The decoded characters are the TOKEN for Shell 6.
+  The decoded text is
+        ROUTE_KEY || "|" || base64url(STREAM)
+  Split on the FIRST "|". ROUTE_KEY keys Shell 8; STREAM is Shell 7.
 
 ----------------------------------------------------------------
-SHELL 6 — THE TOKEN IS NOT WHAT IT LOOKS LIKE  (Huffman)
+SHELL 7 — THE STREAM IS A HUFFMAN BITSTREAM
 ----------------------------------------------------------------
-  The token is shaped exactly like URL-safe base64 and decodes
-  without complaint. But the bytes are a HUFFMAN BITSTREAM,
-  most-significant-bit first:
-    - The first 16 bits are a big-endian character count C.
-    - The next bits are C Huffman symbols, decoded with the
-      frequency table below. Route convention: left edge = bit 0,
-      right edge = bit 1.
-  Rebuild the tree from the FREQUENCIES ONLY (no code is given):
-    * repeatedly merge the two lowest-frequency nodes;
-    * on a frequency tie, prefer the node inserted earlier — leaves
-      are inserted first in ascending ASCII order, internal nodes
-      in creation order (this fully determines the tree).
+  * Base64-URL-decode STREAM. Its bytes are a HUFFMAN BITSTREAM,
+    most-significant-bit first:
+      - The first 16 bits are a big-endian character count C.
+      - The next bits are C Huffman symbols, decoded with the
+        frequency table below. Route convention: left edge = bit 0,
+        right edge = bit 1.
+  * Rebuild the tree from the FREQUENCIES ONLY (no code is given):
+      * repeatedly merge the two lowest-frequency nodes;
+      * on a frequency tie, prefer the node inserted earlier — leaves
+        are inserted first in ascending ASCII order, internal nodes
+        in creation order (this fully determines the tree).
+  * The decoded text is
+        SEAL_TOKEN || "|" || base64(SEALED_SOURCE)
+    Split on the FIRST "|". SEAL_TOKEN is the Shell 9 token;
+    SEALED_SOURCE is the Shell 8 ciphertext.
 
   FREQUENCY TABLE  (ascii_code : count)
 [LEDGER-BEGIN]
- 10    3
- 32    4
- 39    2
- 40    3
- 41    3
- 44   33
- 46    1
- 48    4
- 49   14
- 50    9
- 51    7
- 52    5
- 53    1
- 54    8
- 55    9
- 56   11
- 57    8
- 61    2
- 88    2
- 91    1
- 93    1
- 94    1
- 99    3
-100    2
-102    1
-104    1
-105    3
-106    1
-110    3
-111    2
-112    1
-114    3
-116    1
+ 43   10
+ 45    1
+ 47   18
+ 48    6
+ 49   12
+ 50    6
+ 51   13
+ 52   15
+ 53   12
+ 54    9
+ 55   11
+ 56   14
+ 57   15
+ 61    1
+ 65   18
+ 66    9
+ 67   11
+ 68    6
+ 69   14
+ 70   11
+ 71    7
+ 72    8
+ 73   13
+ 74   19
+ 75    7
+ 76   13
+ 77   12
+ 78    7
+ 79    8
+ 80   18
+ 81    9
+ 82    7
+ 83   15
+ 84   10
+ 85   10
+ 86    9
+ 87   10
+ 88   11
+ 89   14
+ 90   15
+ 97    9
+ 98   12
+ 99    8
+100    9
+101   12
+102    9
+103    8
+104   11
+105   10
+106   14
+107    6
+108    5
+109   10
+110   14
+111    7
+112    7
+113    6
+114   18
+115    8
+116   12
+117    6
+118   19
+119    9
+120    9
+121   11
+122   12
+124    1
 [LEDGER-END]
 
 ----------------------------------------------------------------
-SHELL 7 — RUN IT
+SHELL 8 — SEALED SOURCE  (AES-256-CTR)
 ----------------------------------------------------------------
-  What tumbles out of Shell 6 is Python source. It does NOT contain
-  the flag as a literal: it reconstructs it with a tiny computation.
-  Execute it and read what it prints.
+  * The SEALED_SOURCE blob is  nonce(16) || ciphertext.
+    Derive the key with PBKDF2-HMAC-SHA256:
+        passphrase = ROUTE_KEY (Shell 6)
+        salt (hex) = 6d617472796f73686b612d7365616c
+        iterations = 100000
+        dkLen      = 32
+    Use the first 16 bytes as the initial counter block.
+  * The plaintext is Python source.
+
+----------------------------------------------------------------
+SHELL 9 — RUN WITH THE SEAL
+----------------------------------------------------------------
+  * Execute the Shell-8 source, passing the SEAL_TOKEN (Shell 7) as
+    its FIRST command-line argument (sys.argv[1]).
+  * The source compares a hash of the token, then reconstructs the
+    flag. With the correct token it prints the flag; with any other
+    token (or none) it prints a DECOY.
 
 ----------------------------------------------------------------
   "Every doll holds a smaller doll. Stop early and you go home

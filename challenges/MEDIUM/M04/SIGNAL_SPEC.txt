@@ -2,45 +2,56 @@ UNDERGROUND RADIO -- RECOVERED SIGNAL NOTES
 ===========================================
 
 Foreword
-  These notes were reconstructed from a damaged LSPD beacon capture. Values
-  tagged (RECORDED) are raw; values tagged (FIELD-INTEL) are unverified and
-  may describe a superseded firmware revision.
+  Reconstructed from a damaged LSPD beacon capture. Values tagged (RECORDED)
+  are raw; values tagged (FIELD-INTEL) are unverified and may describe a
+  superseded firmware revision (an older "legacy" burst).
 
 Cleartext sync header (RECORDED - participant-readable)
-  radio_packet.bin begins with a 12-byte CLEARTEXT sync block:
+  radio_packet.bin begins with a 16-byte CLEARTEXT sync block:
     [0:4]   ASCII magic "RDRX"
-    [4]     format version (1)
+    [4]     format version (2)
     [5]     ROUND-ROBIN STARTING LANE o   (0..2)   <- the lane offset
     [6]     LANE BURST LENGTH b           (bytes emitted per register visit)
     [7]     beacon register degree Lb
     [8:12]  beacon register tap bitmask, little-endian
             (bit t set  =>  the beacon register taps state bit b_t)
-  The lane-interleaved ciphertext begins at offset 12.
+    [12]    schedule MODE byte (selects the live interleave schedule)
+    [13]    SPIN key (a per-packet byte rotation applied after masking)
+    [14]    WASH seed (a flavour byte that feeds the header-derived wash)
+    [15]    header checksum = (sum(header[0:15]) XOR 0xA5) & 0xFF
+  The ciphertext begins at offset 16. Nothing before it is encrypted.
 
 Transmission masking (RECORDED)
   Three short feedback registers -- R0, R1, R2 -- feed the masking stream.
-  Each register is clocked once per bit and assembles its output
-  most-significant-bit first into one mask byte per eight ticks. The
-  transmitter visits the registers in the FIXED cyclic order R0, R1, R2 and,
-  on each visit, emits b consecutive mask bytes from that register. The visit
-  order begins at register R(o): the g-th visit (g = 0,1,2,...) draws its bytes
-  from register R((g + o) mod 3). The bytes drawn from any single register are
-  therefore contiguous (the i-th byte drawn from a register is that register's
-  i-th stream byte). b > 1, so choosing the wrong starting lane o re-groups the
-  bytes into mixed streams -- find o in the sync header before de-multiplexing.
-  Unit secrets are the R0/R1 taps and all seeds. The beacon register R2 is the
-  exception: its degree Lb and tap mask are carried in the sync header, so R2's
-  state can be recovered by solving its (small) linear output system over GF(2)
-  rather than by Berlekamp-Massey.
+  Each register is clocked once per bit and assembles its output MSB-first
+  into one mask byte per eight ticks. The transmitter visits the registers in
+  the FIXED cyclic order R0, R1, R2 and, on each visit, emits b consecutive
+  mask bytes from that register. The visit order begins at register R(o): the
+  g-th visit (g = 0,1,2,...) draws its bytes from register R((g + o) mod 3).
+  The bytes drawn from a single register are contiguous. Unit secrets are the
+  R0/R1 taps and all seeds. The beacon register R2 is the exception: its
+  degree Lb and tap mask are carried in the sync header, so R2's state can be
+  recovered by solving its (small) linear output system over GF(2) rather than
+  by Berlekamp-Massey.
+  After masking, the transmitter wraps the frame twice more:
+    * SPIN  - each fixed span of the masked frame is rotated by the header's
+              SPIN key (the same span width for every packet);
+    * WASH  - the whole frame is masked by a header-derived byte stream whose
+              seed is the WASH byte.
+  Both wraps are keyed off the CLEARTEXT header, so a wrong header value (or
+  the wrong MODE) produces a frame that looks well-formed but will not decode.
 
-  (FIELD-INTEL, UNVERIFIED - author no longer with the unit)
-    * The three registers' byte outputs are XOR-combined into the mask.
-    * R0 taps: b11 and b5,  seed 0x0BEEF.
-    * R1 taps: b13 and b7,  seed 0x0F1E2D.
-    * R2 taps: b17 and b9,  seed 0x01234.
+  (FIELD-INTEL, UNVERIFIED - author no longer with the unit; this block
+   describes the OLD legacy burst, not the current net)
+    * Four registers are byte-interleaved (NOT XOR-combined).
+    * R0 taps: b11 and b5,  seed 0x05EE.
+    * R1 taps: b13 and b7,  seed 0x1F1E.
+    * R2 taps: b17 and b9,  seed 0x1234.
+    * R3 taps: b23 and b9,  seed 0xDEAD.
     * Lane burst length is 4 and the visit order always starts at R0.
-  Treat the whole block above as suspect; it did not reproduce a known header
-  during the analyst's first pass.
+    * An 8-byte lane transpose sits on the wire.
+  Treat the block above as suspect for the CURRENT capture; it reproduced the
+  legacy burst but NOT a current-net header on the analyst's first pass.
 
 Known plaintext header (exactly 64 bytes, ' ' = U+0020 right padding):
 
@@ -56,26 +67,28 @@ Capture integrity
 
 Post-mask transform
   Before a payload hits the wire the transmitter applies a fixed lane
-  interleaver: the masked bytes are written row-major into fixed-width lanes
-  and read back column-major. A stale memo claims 4-byte lanes; that figure
-  is contradicted by the current firmware's lane count.
+  interleaver to the masked frame: the bytes are written row-major into
+  fixed-width lanes and read back column-major. A stale memo claims 4-byte
+  lanes; that figure is contradicted by the current firmware's lane count.
 
 Files
   keystream_sample.bin   bytes [0:15] = header XOR mask[0:15]; bytes [15:64]
                          are 0x00 (redacted / lost on capture).
-  radio_packet.bin       12-byte cleartext sync header + lane_interleave(message
-                         XOR mask[0:len]).
+  radio_packet.bin       16-byte cleartext sync header + the wrapped ciphertext
+                         of the LIVE net (mask, spin, wash, transpose).
+  legacy_burst.bin       an older raw burst (no sync header) -- see the
+                         analyst's field note.
+  OPERATOR_NOTE.txt      the analyst's working note (UNVERIFIED).
+  branchB_candidate.bin  a candidate decode that did NOT resolve (see note).
 
 Task
-  Find the lane offset in the sync header, de-multiplex the surviving sample
-  bytes into the three registers (two via Berlekamp-Massey, the degree-23
-  beacon via its published taps + a tiny GF(2) solve), regenerate as much mask
-  as the packet needs, undo the lane interleave, and read the payload. The flag
-  (FTA{...}) is inside the decoded message.
+  Recover the mask from the surviving sample, regenerate it for the whole
+  packet, then undo the transmitter's full chain (wash, spin, transpose, XOR)
+  and read the payload of radio_packet.bin. The flag (FTA{...}) is inside that
+  payload.
 
 Masked byte semantics
-  masked_byte  = plaintext_byte XOR mask_byte    (bitwise XOR, 8 bits)
-  payload_byte = lane_interleave(masked_byte)     (see "Post-mask transform")
+  wire_byte = WASH( SPIN( transpose( plaintext_byte XOR mask_byte ) ) )
 
-Stale plaintext fragment (RECORDED - from an earlier channel, do not submit):
+Stale plaintext fragment (RECORDED - earlier channel, do not submit):
   "...beacon check... FTA{lfsr_is_not_a_public_key_23} ..."

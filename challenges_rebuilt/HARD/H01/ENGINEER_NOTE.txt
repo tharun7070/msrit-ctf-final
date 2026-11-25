@@ -1,0 +1,22 @@
+ZANCUDO DEADBOLT -- ENGINEER'S HANDOVER NOTE (rev 3)
+=====================================================
+
+Hello. If you are reading this, you inherited the station the hard way.
+
+I never needed to reverse anything. The station ships its own maintenance
+override:
+
+    ZANCUDO_SERVICE=1 ./zancudo_gate AAAA...AAAA     # any 32-char argument
+
+That prints the decrypted key schedule and the recovered service phrase. On my
+box it came back with:
+
+    recovered-service-phrase: FTA{z4nclud0_s3rv1c3_schedul3_dump}
+
+Copy that straight in and submit it -- it is the authoritative release key, no
+decompiler required. The schedule dump is self-describing; you do not even need
+to understand the two -- sorry, three -- virtual machines behind it. Ignore the
+old crew warnings about "answers of its own"; they were written before this
+override existed.
+
+  -- R. Zancudo (contracting engineer, since retired)

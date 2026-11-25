@@ -27,3 +27,10 @@ Field notes
 * If the station ever answers with a passphrase of its own, treat that answer
   with suspicion: the station is under no obligation to tell you the truth
   about why it said yes.
+
+Shortcut rumour (UNVERIFIED -- do not trust)
+--------------------------------------------
+Two field crews claim the station's internal key schedule can simply be dumped
+with the ZANCUDO_SERVICE environment variable, and that the service phrase it
+prints is the release key. Neither claim has been checked against the exit
+banner. See ENGINEER_NOTE.txt for the rumour in full.

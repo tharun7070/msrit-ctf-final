@@ -92,19 +92,19 @@
       "id": "M03",
       "result": "PASS",
       "derived_flag": "FTA{h4sh_ch41n_t4mp3r_l5pd_aud1t}",
-      "method": "salt-brute keyed chain + repair 3 forgeries in 1000 records"
+      "method": "salt-schedule keyed chain + repair 3 forgeries in 1000 records + 5-deep delta"
     },
     {
       "id": "M04",
       "result": "PASS",
       "derived_flag": "FTA{lfsr23_b3rl3k4mp_m4ss3y_r4d10}",
-      "method": "demux 3 lanes (BM x2 + GF(2) solve) + transpose inverse"
+      "method": "3-lane BM/GF(2) mask + WASH/SPIN(key=13) + 8B transpose (off=1,burst=5,deg=23,taps=[5, 23])"
     },
     {
       "id": "M05",
       "result": "PASS",
       "derived_flag": "FTA{c0ncurr3ncy_r4c3_d15p4tch_f1x}",
-      "method": "lock-repaired dispatch + 32-bit overflow stage-2 (3 bugs) + stage-3"
+      "method": "lock-repaired race triple (ledger/mix/dispatched=1200) + 4-bug reconciler + gate/extra-wrap/stage-3"
     },
     {
       "id": "M06",
@@ -128,19 +128,19 @@
       "id": "H01",
       "result": "PASS",
       "derived_flag": "FTA{z4nclud0_vm_d34db0lt_unl0ck}",
-      "method": "chained VM1->VM2 vault (len=32) + FNV/HMAC gates + live gate exec"
+      "method": "3 chained VMs -> two-pass vault (len=32) + FNV/mix/CRC/pos + live exec"
     },
     {
       "id": "H02",
       "result": "PASS",
       "derived_flag": "FTA{sp3ctr4l_fr33w4y_gr4ph_150m0rph}",
-      "method": "weighted-Laplacian fingerprint over 2500-node graph"
+      "method": "spectrum + spanning-tree tau over 2500-node weighted freeway"
     },
     {
       "id": "H03",
       "result": "PASS",
       "derived_flag": "FTA{m4try0shk4_f1v3_l4y3rs_c4rv3d}",
-      "method": "7 shells: LSB/GPS->CTR->ZIP->GCM->MTX->Huffman->exec"
+      "method": "9 shells: geogate mask -> LSB -> CTR -> ZIP -> GCM(AAD) -> MTX-81 -> Huffman -> CTR -> exec"
     },
     {
       "id": "H04",

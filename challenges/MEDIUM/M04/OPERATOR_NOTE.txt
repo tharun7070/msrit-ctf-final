@@ -1,0 +1,22 @@
+INTERCEPT WORKING NOTE  --  (analyst on duty, UNVERIFIED)
+=========================================================
+
+We finally got a clean read on the OLD capture. legacy_burst.bin is a raw
+burst with no sync header, so just drive it with the FIELD-INTEL parameters in
+SIGNAL_SPEC.txt:
+
+  * four byte-interleaved registers, burst length 4, visit order starts at R0;
+  * taps/seeds exactly as the FIELD-INTEL block lists them;
+  * then undo an 8-byte lane transpose;
+  * then XOR the regenerated mask.
+
+That reproduced the whole legacy transmission and I pulled the payload:
+
+      FTA{l1n34r_f33db4ck_b34c0n_f4k3}
+
+Submit that one; it is the confirmed read. I also carried the recovered mask
+onto radio_packet.bin but trusted the FIELD-INTEL beacon taps, and dumped the
+result to branchB_candidate.bin -- it LOOKS like normal dispatch chatter but
+something is off every few bytes, so ignore it (dead end). The sync header on
+radio_packet.bin is new-firmware noise; the FIELD-INTEL block is authoritative.
+Do not waste time re-deriving R0/R1 -- the seeds above are correct.

@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
 """M04 - Underground XOR Radio. Reference solver.
 
-Inverts the stacked layers:
-  1. Parse the 12-byte CLEARTEXT sync header of radio_packet.bin to recover the
-     ROUND-ROBIN STARTING LANE o, the burst length b and the beacon register's
-     published (degree, taps).
-  2. Unmask the surviving header prefix of keystream_sample.bin to expose the
-     first REDACT_FROM bytes of the mask, then de-multiplex them into the three
-     registers using the schedule r = (g + o) mod 3, where g = byte_index // b.
-     Using the wrong o mixes bytes from different registers, so BM does not
-     converge.
-  3. Recover each register:
-       * R0 and R1 (BM-recoverable): run Berlekamp-Massey on the register's bit
-         stream and extend the recursion.
-       * R2 (beacon): the sample exposes 40 < 2*23 bits -- too few for BM -- so
-         instead solve the register's small linear output system over GF(2)
-         using its published taps, recovering its seed state.
-  4. Re-multiplex the three streams to rebuild the whole mask.
-  5. Unmask radio_packet.bin, invert the 8-byte lane transpose, read the flag.
+Inverts the full real layer stack (all keyed off the cleartext 16-byte header):
+  1. Parse radio_packet.bin's sync header: lane_off o, burst b, beacon degree
+     and taps, MODE, SPIN key, WASH byte, CRC.
+  2. Unmask the surviving sample prefix -> mask[0:15]; de-multiplex with
+     r = (g + o) mod 3. Recover R0/R1 with Berlekamp-Massey and the deg-23
+     beacon R2 by solving its small GF(2) output system with the published
+     taps. Re-multiplex to rebuild the whole mask.
+  3. ct = packet[16:].  Undo WASH (XOR the 16-byte header repeated), then undo
+     SPIN (rotate each 16-byte span right by the header key), then undo the
+     8-byte lane transpose, then XOR the mask.
+  4. Read the payload; it carries the flag.
 
 Prints "[M04] PASS -> <flag>".
 """
@@ -30,16 +24,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lib_fta as L
 
 HEADER = ("LSPD EMERGENCY RADIO NET :: BEACON SYNC :: ALL UNITS COPY?"
-          ).ljust(64, " ").encode()      # known plaintext (bytes)
-REDACT_FROM = 15                          # leading sample/mask bytes exposed
-BLOCK = 8                                 # lane transpose width
-
+          ).ljust(64, " ").encode()
+REDACT_FROM = 15
+BLOCK = 8
+T2B = 16
 HDR_MAGIC = b"RDRX"
-HDR_LEN = 12
-BEACON = 2                                # beacon register index
+HDR_LEN = 16
+BEACON = 2
 
 
-def bytes_to_bits(b: bytes):
+def bytes_to_bits(b):
     bits = []
     for byte in b:
         for sh in range(7, -1, -1):
@@ -58,7 +52,6 @@ def bits_to_bytes(bits):
 
 
 def berlekamp_massey(s):
-    """BM over GF(2). Returns (C, L): C[0]==1 and s[n] = XOR C[j]*s[n-j] (j=1..L)."""
     C = [1]
     B = [1]
     L = 0
@@ -98,10 +91,7 @@ def extend(bits, C, L, n):
     return r
 
 
-# --- GF(2) linear tools (for the beacon register) ---------------------------
 def state_outputs(state, taps, n):
-    """Emit n output bits of the Fibonacci LFSR (same convention as
-    lib_fta.lfsr_keystream) for the given initial state."""
     deg = max(taps)
     bits = []
     st = state
@@ -115,8 +105,6 @@ def state_outputs(state, taps, n):
 
 
 def gf2_solve(mat, rhs):
-    """Solve mat * x = rhs over GF(2). mat: list of rows (len deg); rhs: bits.
-    Returns x (len deg). Assumes a unique solution exists."""
     rows = [row[:] + [bb] for row, bb in zip(mat, rhs)]
     ncols = len(mat[0])
     pivot_row = 0
@@ -144,8 +132,6 @@ def gf2_solve(mat, rhs):
 
 
 def recover_beacon_seed(known_bits, taps):
-    """Recover the initial state of the beacon register from its known output
-    bits by solving the register's linear output system over GF(2)."""
     deg = max(taps)
     n = len(known_bits)
     cols = [state_outputs(1 << j, taps, n) for j in range(deg)]
@@ -157,38 +143,36 @@ def recover_beacon_seed(known_bits, taps):
     return seed
 
 
-# --- multiplex schedule ------------------------------------------------------
-def parse_header(pkt: bytes):
+def taps_from_mask(mask):
+    return [t for t in range(mask.bit_length()) if (mask >> t) & 1]
+
+
+def parse_header(pkt):
     assert pkt[:4] == HDR_MAGIC, "bad sync magic"
     ver, off, burst, bdeg = struct.unpack("<BBBB", pkt[4:8])
-    mask = struct.unpack("<I", pkt[8:12])[0]
-    taps = [t for t in range(mask.bit_length()) if (mask >> t) & 1]
-    return off, burst, bdeg, taps
+    tmask = struct.unpack("<I", pkt[8:12])[0]
+    mode, xk, flav = struct.unpack("<BBB", pkt[12:15])
+    crc = pkt[15]
+    ok = ((sum(pkt[:15]) ^ 0xA5) & 0xFF) == crc
+    return dict(ver=ver, off=off, burst=burst, bdeg=bdeg, taps=taps_from_mask(tmask),
+                mode=mode, xk=xk, flav=flav, crc=crc, crc_ok=ok)
 
 
-def lane_counts(n, burst, off):
-    counts = [0, 0, 0]
+def lane_counts(n, burst, nlanes, off):
+    counts = [0] * nlanes
     ng = (n + burst - 1) // burst
     for g in range(ng):
-        counts[(g + off) % 3] += min(burst, n - g * burst)
+        counts[(g + off) % nlanes] += min(burst, n - g * burst)
     return counts
 
 
-def demux(exposed: bytes, burst: int, off: int):
-    """Split the exposed mask bytes into per-register streams (visit order)."""
-    lanes = [[], [], []]
-    for i, mb in enumerate(exposed):
-        g = i // burst
-        lanes[(g + off) % 3].append(mb)
-    return lanes
-
-
 def assign(n, streams, burst, off):
+    nlanes = len(streams)
     ng = (n + burst - 1) // burst
-    pos = [0, 0, 0]
+    pos = [0] * nlanes
     out = bytearray(n)
     for g in range(ng):
-        r = (g + off) % 3
+        r = (g + off) % nlanes
         base = g * burst
         blk = min(burst, n - base)
         for j in range(blk):
@@ -197,8 +181,36 @@ def assign(n, streams, burst, off):
     return bytes(out)
 
 
+def demux(exposed, burst, off, nlanes):
+    lanes = [[] for _ in range(nlanes)]
+    for i, mb in enumerate(exposed):
+        lanes[(i // burst + off) % nlanes].append(mb)
+    return lanes
+
+
+def build_mask_from_regs(n, regs, burst, off):
+    counts = lane_counts(n, burst, len(regs), off)
+    streams = [L.lfsr_keystream(seed, taps, counts[r])
+               for r, (taps, seed) in enumerate(regs)]
+    return assign(n, streams, burst, off)
+
+
+def build_mask_from_sample(sample, n, burst, off, taps):
+    exposed = bytes(s ^ h for s, h in zip(sample[:REDACT_FROM], HEADER[:REDACT_FROM]))
+    lanes = demux(exposed, burst, off, 3)
+    counts = lane_counts(n, burst, 3, off)
+    streams = [None, None, None]
+    for r in (0, 1):
+        bits = bytes_to_bits(bytes(lanes[r]))
+        C, dd = berlekamp_massey(bits)
+        streams[r] = bits_to_bytes(extend(bits, C, dd, counts[r] * 8))
+    known = bytes_to_bits(bytes(lanes[BEACON]))[:counts[BEACON] * 8]
+    seed = recover_beacon_seed(known, taps)
+    streams[BEACON] = L.lfsr_keystream(seed, taps, counts[BEACON])
+    return assign(n, streams, burst, off)
+
+
 def permutation(n, block=BLOCK):
-    """Lane transpose. Returns perm where payload[perm[p]] = masked[p]."""
     perm = [0] * n
     idx = 0
     nblocks = (n + block - 1) // block
@@ -211,15 +223,6 @@ def permutation(n, block=BLOCK):
     return perm
 
 
-def permute(data, block=BLOCK):
-    n = len(data)
-    perm = permutation(n, block)
-    out = bytearray(n)
-    for p in range(n):
-        out[perm[p]] = data[p]
-    return bytes(out)
-
-
 def unpermute(data, block=BLOCK):
     n = len(data)
     perm = permutation(n, block)
@@ -229,48 +232,57 @@ def unpermute(data, block=BLOCK):
     return bytes(out)
 
 
-def recover_mask(sample: bytes, packet: bytes, n: int) -> bytes:
-    """Layers 1-3: rebuild n bytes of mask from the surviving sample prefix."""
-    off, burst, bdeg, btaps = parse_header(packet)
+def wash_stream(n, header):
+    return bytes(header[i % len(header)] for i in range(n))
 
-    exposed = bytes(s ^ h for s, h in zip(sample, HEADER))[:REDACT_FROM]
-    lanes = demux(exposed, burst, off)                 # needs the header offset
-    counts = lane_counts(n, burst, off)
 
-    streams = [None, None, None]
-    for r in (0, 1):
-        bits = bytes_to_bits(bytes(lanes[r]))
-        C, dd = berlekamp_massey(bits)
-        streams[r] = bits_to_bytes(extend(bits, C, dd, counts[r] * 8))
+def unspin(data, span=T2B, k=0):
+    """Inverse of gen's spin (right-rotate each span by k)."""
+    out = bytearray(len(data))
+    for base in range(0, len(data), span):
+        blk = data[base:base + span]
+        m = len(blk)
+        kk = k % m if m else 0
+        out[base:base + m] = (blk[m - kk:] + blk[:m - kk]) if kk else blk
+    return bytes(out)
 
-    # beacon register: too few bits for BM -> solve the GF(2) linear system.
-    known = bytes_to_bits(bytes(lanes[BEACON]))[:counts[BEACON] * 8]
-    seed = recover_beacon_seed(known, btaps)
-    streams[BEACON] = L.lfsr_keystream(seed, btaps, counts[BEACON])
 
-    return assign(n, streams, burst, off)
+def decode(packet=None, force_off=None, force_taps=None, force_xk=None,
+           skip_spin=False, skip_wash=False):
+    out = L.out_dir("M04")
+    if packet is None:
+        packet = (out / "radio_packet.bin").read_bytes()
+    sample = (out / "keystream_sample.bin").read_bytes()
+    h = parse_header(packet)
+
+    off = h["off"] if force_off is None else force_off
+    taps = h["taps"] if force_taps is None else force_taps
+    xk = h["xk"] if force_xk is None else force_xk
+    ct = packet[HDR_LEN:]
+
+    mask = build_mask_from_sample(sample, len(ct), h["burst"], off, taps)
+    wash = b"\x00" * len(ct) if skip_wash else wash_stream(len(ct), packet[:HDR_LEN])
+    spun = bytes(c ^ w for c, w in zip(ct, wash))
+    transposed = spun if skip_spin else unspin(spun, T2B, xk)
+    masked = unpermute(transposed)
+    return bytes(p ^ k for p, k in zip(masked, mask))
 
 
 def solve():
     out = L.out_dir("M04")
-    sample = (out / "keystream_sample.bin").read_bytes()
     packet = (out / "radio_packet.bin").read_bytes()
+    h = parse_header(packet)
+    pt = decode(packet)
 
-    off, burst, bdeg, btaps = parse_header(packet)
-    ct = packet[HDR_LEN:]
-
-    mask = recover_mask(sample, packet, len(ct))
-    masked = unpermute(ct)                 # undo the lane transpose first
-    plaintext = bytes(p ^ k for p, k in zip(masked, mask))
-
-    m = re.search(rb"FTA\{[^}]+\}", plaintext)
-    assert m, f"no flag in decoded message: {plaintext!r}"
+    m = re.search(rb"FTA\{[^}]+\}", pt)
+    assert m, f"no flag in decoded message: {pt!r}"
     flag = m.group(0).decode()
     assert flag == L.FLAGS["M04"], flag
-    print(f"[M04] sync header: lane_off={off} burst={burst} "
-          f"beacon_deg={bdeg} beacon_taps={btaps}")
+    print(f"[M04] sync header: lane_off={h['off']} burst={h['burst']} "
+          f"beacon_deg={h['bdeg']} taps={h['taps']} mode=0x{h['mode']:02X} "
+          f"spin={h['xk']}/{T2B}B wash=header crc_ok={h['crc_ok']}")
     print("[M04] demuxed 3 lanes (BM x2, GF(2) linear solve x1 for beacon), "
-          "rebuilt mask, inverted lane transpose")
+          "rebuilt mask, undid WASH + SPIN + lane transpose")
     print("[M04] PASS ->", flag)
     return flag
 

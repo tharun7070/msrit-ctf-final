@@ -29,9 +29,12 @@ services:
       timeout: 3s
       retries: 5
 
-  # CTFd backend
+  # CTFd backend (built locally to add the Postgres driver psycopg2)
   ctfd:
-    image: ctfd/ctfd:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.ctfd
+    image: flag-theft-auto-ctfd:latest
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgresql://ctfd:${POSTGRES_PASSWORD:-ctfd_heist_2024}@db:5432/ctfd
@@ -54,7 +57,7 @@ services:
     ports:
       - "8000:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/settings"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -83,6 +86,9 @@ services:
       context: ./organizer_private/CTFD_IMPORT
       dockerfile: Dockerfile.reveal
     restart: on-failure
+    # The in-network CTFd URL is plain HTTP (TLS terminates at nginx), so the
+    # tool's http guard must be explicitly allowed.
+    command: ["--allow-http"]
     depends_on:
       ctfd:
         condition: service_healthy

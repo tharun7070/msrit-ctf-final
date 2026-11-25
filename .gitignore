@@ -31,3 +31,6 @@ desktop.ini
 # ── Logs / runtime ─────────────────────────────────────────────────
 *.log
 ctfd_logs/
+
+# ACME HTTP-01 webroot (certbot challenge files)
+certbot-www/

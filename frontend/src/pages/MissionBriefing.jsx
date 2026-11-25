@@ -69,18 +69,9 @@ export default function MissionBriefing() {
       setError(null);
 
       let cData = null;
-      let fData = [];
-      let hData = [];
 
       try {
-        const [cRes, fRes, hRes] = await Promise.all([
-          getChallenge(id).catch(() => null),
-          getChallengeFiles(id).catch(() => []),
-          getChallengeHints(id).catch(() => []),
-        ]);
-        cData = cRes;
-        fData = fRes || [];
-        hData = hRes || [];
+        cData = await getChallenge(id).catch(() => null);
       } catch (err) {
         // Continue to fallback
       }
@@ -109,22 +100,33 @@ export default function MissionBriefing() {
         objective: meta.objective || cData.objective || 'Submit recovered flag to CTFd in FTA{...} format.',
       };
 
-      // Ensure files array has downloadable locations
-      const challengeFiles = (fData.length > 0 ? fData : (meta.files || cData.files || [])).map((f) => {
+      // Prefer CTFd's /files/ URLs (required for bonus wave), fallback to local meta.files
+      const rawFiles = Array.isArray(cData.files) && cData.files.length > 0
+        ? cData.files
+        : (meta.files || []);
+      const challengeFiles = rawFiles.map((f) => {
         if (typeof f === 'string') {
+          if (f.startsWith('/files/') || f.startsWith('http')) {
+            return {
+              name: f.split('/').pop().split('?')[0] || 'evidence_file',
+              location: f,
+            };
+          }
           return {
             name: f,
             location: `/challenges/${lvl.toUpperCase()}/${ftaId}/${f}`,
           };
         }
         return {
-          name: f.name || f.location?.split('/').pop() || 'evidence_file',
+          name: f.name || f.location?.split('/').pop()?.split('?')[0] || 'evidence_file',
           location: f.location || `/challenges/${lvl.toUpperCase()}/${ftaId}/${f.name}`,
         };
       });
 
-      // Ensure hints array. Content stays locked until unlocked (unlock deducts score).
-      const rawHints = hData.length > 0 ? hData : (meta.hints || cData.hints || []);
+      // Prefer CTFd's real hint objects (integer IDs for /api/v1/unlocks)
+      const rawHints = Array.isArray(cData.hints) && cData.hints.length > 0
+        ? cData.hints
+        : (meta.hints || []);
       const hintCost = HINT_COST_BY_LEVEL[lvl] ?? 10;
       const challengeHints = rawHints.map((h, i) => {
         if (typeof h === 'string') {

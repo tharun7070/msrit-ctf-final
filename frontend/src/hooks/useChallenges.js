@@ -6,10 +6,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { getChallenges, getMySolves, getTeamSolves, getMyTeam } from '../services/ctfd';
 import { getChallengeMeta, ALL_15_CHALLENGES, BONUS_CHALLENGES } from '../data/challengeMeta';
 
-// Offline/dev fallback shows the full board (main event + bonus wave). In
-// production CTFd is the source of truth: it keeps the bonus challenges hidden
-// until the reveal, so they only surface once the scheduler flips them visible.
-const OFFLINE_FALLBACK = [...ALL_15_CHALLENGES, ...BONUS_CHALLENGES];
+// Offline/unauthenticated fallback shows only the 25 main-event missions.
+// In production CTFd is the source of truth: it keeps the 10 bonus challenges
+// hidden until the reveal, so they only surface once the scheduler flips them visible.
+const OFFLINE_FALLBACK = [...ALL_15_CHALLENGES];
 
 export function useChallenges() {
   const [challenges, setChallenges] = useState(OFFLINE_FALLBACK);

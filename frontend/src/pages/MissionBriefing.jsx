@@ -626,8 +626,6 @@ export default function MissionBriefing() {
                       type="text"
                       value={flag}
                       onChange={(e) => setFlag(e.target.value)}
-                      onPaste={(e) => e.preventDefault()}
-                      onDrop={(e) => e.preventDefault()}
                       placeholder="FTA{...}"
                       disabled={submitting || isLocked}
                       className="heist-input rounded font-mono uppercase tracking-wider"

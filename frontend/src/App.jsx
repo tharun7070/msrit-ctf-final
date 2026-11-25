@@ -49,11 +49,17 @@ export default function App() {
         <Route path="/login"      element={<LoginPage />} />
         <Route path="/register"   element={<RegisterPage />} />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
-        <Route path="/missions"   element={<MissionsPage />} />
-        <Route path="/mission/:id" element={<MissionBriefing />} />
-        <Route path="/bonus/:game" element={<BonusGamePage />} />
 
         {/* Protected routes — require auth */}
+        <Route path="/missions" element={
+          <ProtectedRoute><MissionsPage /></ProtectedRoute>
+        } />
+        <Route path="/mission/:id" element={
+          <ProtectedRoute><MissionBriefing /></ProtectedRoute>
+        } />
+        <Route path="/bonus/:game" element={
+          <ProtectedRoute><BonusGamePage /></ProtectedRoute>
+        } />
         <Route path="/dashboard" element={
           <ProtectedRoute><Dashboard /></ProtectedRoute>
         } />

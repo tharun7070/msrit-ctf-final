@@ -42,11 +42,24 @@ FLAGS = {
     "M06": "FTA{n1ghtsh1ft_l04d3r_unp4ck3d_t0k3n}",
     "M07": "FTA{n1ghtsh1ft_c2_c0nf1g_r4m_x0r}",
     "M08": "FTA{n1ghtsh1ft_c2_s3ss10n_ch41n3d_fr4m3s}",
+    # --- Bonus wave (revealed T+60min, $25 each, mixed/funny) ------------------
+    # B01-B04 ship an on-site browser mini-game that reveals a key; the rest are
+    # standalone downloads. All masked with a key recovered from play/analysis.
+    "B01": "FTA{s1m0n_s4ys_d15p4tch_qu3u3}",
+    "B02": "FTA{r3fl3x_j0b_0n3_m1ll1s3c0nd_w1nd0w}",
+    "B03": "FTA{c4pt41ns_l0g_c0mm4nd_sh3ll}",
+    "B04": "FTA{4ch13v3m3nt_unl0ck3d_t0uch3d_gr4ss}",
+    "B05": "FTA{n1k0s_p1zz4_r3c31pt_0v3rch4rg3}",
+    "B06": "FTA{w1f1_n4m3d_fb1_surv31ll4nc3_v4n}",
+    "B07": "FTA{r1ckr0ll_pr0t0c0l_n3v3r_g0nn4_g1v3}",
+    "B08": "FTA{404_fl4g_n0t_f0und_b4s364_h34d3rs}",
+    "B09": "FTA{fb_m4rk3tpl4c3_rugpull_pr1c3}",
+    "B10": "FTA{gr4nd_th3ft_4lp4c4_1nst4ll_l1nux}",
 }
 
 
 def out_dir(cid):
-    lvl = {"E": "EASY", "M": "MEDIUM", "H": "HARD"}[cid[0]]
+    lvl = {"E": "EASY", "M": "MEDIUM", "H": "HARD", "B": "BONUS"}[cid[0]]
     d = OUT / lvl / cid
     d.mkdir(parents=True, exist_ok=True)
     return d

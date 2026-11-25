@@ -1,0 +1,8 @@
+[buyer] is it still available?
+[seller] yes. $4200 firm, no lowballers.
+[buyer] how about $3000
+[seller] lol no
+[buyer] $3699 final
+[seller] final price: $3699. deal. bring cash, no receipts.
+[buyer] ok sending the courier blob now
+[seller] if the amount in the blob does not match, it decodes to garbage. just saying

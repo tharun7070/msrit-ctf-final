@@ -13,6 +13,7 @@ import RegisterPage   from './pages/RegisterPage';
 import Dashboard      from './pages/Dashboard';
 import MissionsPage   from './pages/MissionsPage';
 import MissionBriefing from './pages/MissionBriefing';
+import BonusGamePage   from './pages/BonusGamePage';
 import LeaderboardPage from './pages/LeaderboardPage';
 import CrewPage       from './pages/CrewPage';
 import IntelPage      from './pages/IntelPage';
@@ -50,6 +51,7 @@ export default function App() {
         <Route path="/leaderboard" element={<LeaderboardPage />} />
         <Route path="/missions"   element={<MissionsPage />} />
         <Route path="/mission/:id" element={<MissionBriefing />} />
+        <Route path="/bonus/:game" element={<BonusGamePage />} />
 
         {/* Protected routes — require auth */}
         <Route path="/dashboard" element={

@@ -1,0 +1,6 @@
+STARSHIP MANIFEST // XOR-masked cargo list
+Use the on-site bridge terminal to unlock the log; it prints the
+16-byte key. XOR the repeating key across these bytes.
+
+CIPHERTEXT (hex):
+1115132b4e774026711c2540064102510822623d40775e361a5e230035414f

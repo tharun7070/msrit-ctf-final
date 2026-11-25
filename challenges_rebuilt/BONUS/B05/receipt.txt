@@ -1,0 +1,15 @@
+PIZZA THIS // 1399 Route 68, Sandy Shores
+NIKO  TABLE 7   ORDER #4317
+============================================
+  2 x  1499  Pepperoni Alpaca           2998
+  1 x   899  Garlic Knots (dozen)        899
+  3 x    99  Cheesy Crust Upgrade        297
+  1 x   123  Delivery (Sandy Shores)     123
+--------------------------------------------
+  SUBTOTAL (printed)                5654
+
+  Service fee and 'convenience' charge folded into the line above.
+  Niko swears the total is wrong by a whole number of cents.
+  The stapled blob is masked with that overcharge.
+
+OVERCHARGE_BLOB = 7f51417b57346b304a5a7031437f345f4b3663330875745f097333725a6d34725e367d

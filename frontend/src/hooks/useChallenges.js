@@ -4,10 +4,15 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { getChallenges, getMySolves, getTeamSolves, getMyTeam } from '../services/ctfd';
-import { getChallengeMeta, ALL_15_CHALLENGES } from '../data/challengeMeta';
+import { getChallengeMeta, ALL_15_CHALLENGES, BONUS_CHALLENGES } from '../data/challengeMeta';
+
+// Offline/dev fallback shows the full board (main event + bonus wave). In
+// production CTFd is the source of truth: it keeps the bonus challenges hidden
+// until the reveal, so they only surface once the scheduler flips them visible.
+const OFFLINE_FALLBACK = [...ALL_15_CHALLENGES, ...BONUS_CHALLENGES];
 
 export function useChallenges() {
-  const [challenges, setChallenges] = useState(ALL_15_CHALLENGES);
+  const [challenges, setChallenges] = useState(OFFLINE_FALLBACK);
   const [solvedIds, setSolvedIds]   = useState(new Set());
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState(null);
@@ -26,7 +31,8 @@ export function useChallenges() {
         // Enriched CTFd challenges
         enriched = list.map((c, idx) => {
           const meta = getChallengeMeta(c.name) || {};
-          const level = meta.level || (c.value === 50 ? 'Easy' : c.value === 100 ? 'Medium' : 'Hard');
+          const level = meta.level
+            || (c.value === 50 ? 'Easy' : c.value === 100 ? 'Medium' : c.value === 25 ? 'Bonus' : 'Hard');
           const act = meta.act || (level === 'Easy' ? 'The Street Job' : level === 'Medium' ? 'The Big Heist' : 'The Final Getaway');
           return {
             ...meta,
@@ -36,15 +42,15 @@ export function useChallenges() {
             fta_id: meta.fta_id || (c.name ? c.name.slice(0, 3) : `C${idx + 1}`),
             level,
             act,
-            reward: meta.reward || c.value || (level === 'Easy' ? 50 : level === 'Medium' ? 100 : 160),
+            reward: meta.reward || c.value || (level === 'Easy' ? 50 : level === 'Medium' ? 100 : level === 'Bonus' ? 25 : 160),
             location: meta.location || 'Los Santos Underground',
             files: meta.files || [],
             briefing: meta.briefing || c.description,
           };
         });
       } else {
-        // Always provide all 20 authentic missions if CTFd is uninitialized or in preview
-        enriched = ALL_15_CHALLENGES;
+        // Always provide all authentic missions if CTFd is uninitialized or in preview
+        enriched = OFFLINE_FALLBACK;
       }
 
       setChallenges(enriched);
@@ -61,8 +67,8 @@ export function useChallenges() {
       setSolvedIds(new Set(solves.map(s => s.challenge_id)));
     } catch (e) {
       console.warn('CTFd connection notice:', e.message);
-      // Fallback to the authentic 25 challenges
-      setChallenges(ALL_15_CHALLENGES);
+      // Fallback to the authentic board (25 main + 10 bonus)
+      setChallenges(OFFLINE_FALLBACK);
     } finally {
       setLoading(false);
     }

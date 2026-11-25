@@ -10,17 +10,19 @@ const DIFF_COLOR = {
   Easy:   { strip: '#39FF14', pill: 'rgba(57,255,20,0.15)',  text: '#39FF14'  },
   Medium: { strip: '#FF8C00', pill: 'rgba(255,140,0,0.15)',  text: '#FF8C00'  },
   Hard:   { strip: '#FF4040', pill: 'rgba(255,64,64,0.15)',  text: '#FF4040'  },
+  Bonus:  { strip: '#00E5FF', pill: 'rgba(0,229,255,0.15)',  text: '#00E5FF'  },
 };
 
 function diffForCard(mission) {
   const lvl = mission.level
     || (mission.fta_id?.startsWith('E') ? 'Easy'
-      : mission.fta_id?.startsWith('M') ? 'Medium' : 'Hard');
+      : mission.fta_id?.startsWith('M') ? 'Medium'
+      : mission.fta_id?.startsWith('B') ? 'Bonus' : 'Hard');
   return { lvl, colors: DIFF_COLOR[lvl] || DIFF_COLOR.Easy };
 }
 
-const ACT_ROMAN = { Easy: 'I', Medium: 'II', Hard: 'III' };
-const ACT_RING  = { Easy: '#39FF14', Medium: '#FF8C00', Hard: '#FF4040' };
+const ACT_ROMAN = { Easy: 'I', Medium: 'II', Hard: 'III', Bonus: 'IV' };
+const ACT_RING  = { Easy: '#39FF14', Medium: '#FF8C00', Hard: '#FF4040', Bonus: '#00E5FF' };
 
 // ── chip config ───────────────────────────────────────────────────────────────
 
@@ -29,6 +31,7 @@ const CHIPS = [
   { id: 'EASY',     label: 'EASY',     activeStyle: { background: '#39FF14', color: '#000'    } },
   { id: 'MEDIUM',   label: 'MEDIUM',   activeStyle: { background: '#FF8C00', color: '#000'    } },
   { id: 'HARD',     label: 'HARD',     activeStyle: { background: '#FF4040', color: '#fff'    } },
+  { id: 'BONUS',    label: 'BONUS',    activeStyle: { background: '#00E5FF', color: '#000'    } },
   { id: 'SOLVED',   label: 'SOLVED',   activeStyle: { background: '#00E5FF', color: '#000'    } },
   { id: 'UNSOLVED', label: 'UNSOLVED', activeStyle: { background: '#888',    color: '#fff'    } },
 ];
@@ -134,6 +137,26 @@ function MissionCard({ mission, isSolved, navigate }) {
           </span>
         )}
 
+        {/* Playable on-site mini-game badge */}
+        {mission.game && (
+          <span
+            className="font-mono text-xs font-bold"
+            style={{
+              marginTop: '0.5rem',
+              marginLeft: '0.4rem',
+              display: 'inline-block',
+              background: 'rgba(0,229,255,0.12)',
+              border: '1px solid #00E5FF',
+              color: '#00E5FF',
+              padding: '1px 8px',
+              borderRadius: '999px',
+              width: 'fit-content',
+            }}
+          >
+            🎮 MINI-GAME
+          </span>
+        )}
+
         {/* Footer */}
         <div
           style={{
@@ -178,12 +201,13 @@ export default function MissionsPage() {
 
   // ── existing filtering logic (unchanged) ──────────────────────────────────
   const filteredChallenges = challenges.filter(c => {
-    const lvl = (c.level || (c.fta_id?.startsWith('E') ? 'Easy' : c.fta_id?.startsWith('M') ? 'Medium' : 'Hard')).toLowerCase();
+    const lvl = (c.level || (c.fta_id?.startsWith('E') ? 'Easy' : c.fta_id?.startsWith('M') ? 'Medium' : c.fta_id?.startsWith('B') ? 'Bonus' : 'Hard')).toLowerCase();
     const isSolved = solvedIds.has(c.ctfd_id) || solvedIds.has(c.id);
 
     if (filter === 'EASY'     && lvl !== 'easy')   return false;
     if (filter === 'MEDIUM'   && lvl !== 'medium') return false;
     if (filter === 'HARD'     && lvl !== 'hard')   return false;
+    if (filter === 'BONUS'    && lvl !== 'bonus')  return false;
     if (filter === 'SOLVED'   && !isSolved)        return false;
     if (filter === 'UNSOLVED' && isSolved)         return false;
 
@@ -220,10 +244,17 @@ export default function MissionsPage() {
       desc: '5 Mastermind Contracts · $160 Each · $800 Total',
       items: filteredChallenges.filter(c => (c.level?.toLowerCase() === 'hard') || c.fta_id?.startsWith('H')),
     },
+    {
+      name: 'ACT IV — BONUS WAVE',
+      level: 'Bonus',
+      desc: '10 Bonus Jobs · $25 Each · $250 Total · Unlocks T+60min',
+      items: filteredChallenges.filter(c => (c.level?.toLowerCase() === 'bonus') || c.fta_id?.startsWith('B')),
+    },
   ];
 
   const totalSolved = solvedIds.size;
   const totalCount  = challenges.length || 20;
+  const totalBounty = challenges.reduce((s, c) => s + (c.reward || c.value || 0), 0);
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -253,7 +284,7 @@ export default function MissionsPage() {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <p className="font-mono text-sm" style={{ color: '#9ca3af' }}>
-              {totalCount} ACTIVE TARGETS · $2,200 BOUNTY
+              {totalCount} ACTIVE TARGETS · ${totalBounty.toLocaleString()} BOUNTY
             </p>
 
             {/* Cleared counter — neon green pill */}

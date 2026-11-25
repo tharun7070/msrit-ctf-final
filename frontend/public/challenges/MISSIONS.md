@@ -27,5 +27,17 @@
 | M06 | Medium | Nightshift Loader — Part 1 | Private packer + rotated key table + custom base + checksum gate | 100 |
 | M07 | Medium | Nightshift Config — Part 2 | Smeared RAM XOR key + trap nibble + keyed KDF/HMAC + decoy section | 100 |
 | M08 | Medium | Nightshift C2 — Part 3 | Stateful C2 protocol + HMAC-gated chained frames + plaintext decoy broadcast | 100 |
+| B01 | Bonus | Simon Says: Dispatch Edition | Memory game + keyed XOR | 25 |
+| B02 | Bonus | The Reflex Job | Reaction game + keyed XOR | 25 |
+| B03 | Bonus | Captain's Log, Star Date Whatever | Command-parsing game + keyed XOR | 25 |
+| B04 | Bonus | Achievement Unlocked: Touched Grass | Patience/idle game + keyed XOR | 25 |
+| B05 | Bonus | Niko's Pizza Receipt | Receipt arithmetic + keyed XOR | 25 |
+| B06 | Bonus | Wi-Fi Named 'FBI Surveillance Van' | Weak-passphrase WPA-style KDF + blob | 25 |
+| B07 | Bonus | Rick Roll Protocol | Lyric-keyed Vigenere + rail fence | 25 |
+| B08 | Bonus | 404 Flag Not Found | HTTP header parsing + double base64 | 25 |
+| B09 | Bonus | Facebook Marketplace Rugpull | Listing JSON + chat-price XOR | 25 |
+| B10 | Bonus | Grand Theft Alpaca: Install Linux | Obfuscated shell script + base64 | 25 |
 
 Open each mission folder to read `MISSION.md` and access only its evidence attachments. CTFd provides three progressive hints per mission.
+
+> The `BONUS/` missions (B01-B10, $25 each) are a bonus wave revealed on the event platform 60 minutes after the event begins; a few of them also require playing a small browser game on the event site.

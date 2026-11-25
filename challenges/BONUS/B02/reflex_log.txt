@@ -1,0 +1,7 @@
+ALARM RIG LOG // XOR-masked event trace
+The rig prints a 16-byte key only on a clean, fast hit in the on-site
+reflex game. XOR the repeating key across these bytes.
+
+CIPHERTEXT (hex):
+14670737416b4b3b02361b5a674f6d063c00192102344166427d270039496d41
+635d227c4425

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { getChallenge, getChallengeFiles, getChallengeHints, submitFlag, unlockHint, getHintContent, getMySolves, getMyTeam, getTeamSolves } from '../services/ctfd';
-import { getChallengeMeta, ALL_15_CHALLENGES, LEVEL_COLORS } from '../data/challengeMeta';
+import { getChallengeMeta, ALL_15_CHALLENGES, BONUS_CHALLENGES, LEVEL_COLORS } from '../data/challengeMeta';
 import { useAuth } from '../hooks/useAuth';
 import NavBar from '../sections/NavBar';
 
@@ -11,18 +11,23 @@ const HINT_COST_BY_LEVEL = { Easy: 10, Medium: 20, Hard: 30 };
 const MAX_ATTEMPTS = 3;
 const LOCKOUT_MS = 120 * 1000;
 
+// Briefings must resolve across both waves (25 main + 10 bonus).
+const ALL_CHALLENGES = [...ALL_15_CHALLENGES, ...BONUS_CHALLENGES];
+const findChallenge = (ref) =>
+  ALL_CHALLENGES.find(
+    (c) =>
+      String(c.id) === String(ref) ||
+      String(c.ctfd_id) === String(ref) ||
+      c.fta_id?.toLowerCase() === String(ref).toLowerCase()
+  );
+
 export default function MissionBriefing() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
 
   // Instant sync resolution so the briefing renders in 0ms without waiting for offline timeouts
-  const initialChallenge = ALL_15_CHALLENGES.find(
-    (c) =>
-      String(c.id) === String(id) ||
-      String(c.ctfd_id) === String(id) ||
-      c.fta_id?.toLowerCase() === String(id).toLowerCase()
-  ) || ALL_15_CHALLENGES[0];
+  const initialChallenge = findChallenge(id) || ALL_15_CHALLENGES[0];
 
   const [challenge, setChallenge] = useState(initialChallenge);
   const [files, setFiles] = useState(
@@ -80,18 +85,13 @@ export default function MissionBriefing() {
         // Continue to fallback
       }
 
-      // If backend call returned null/empty, resolve from our canonical 25 challenges
+      // If backend call returned null/empty, resolve from our canonical challenge set
       if (!cData || !cData.name) {
-        cData = ALL_15_CHALLENGES.find(
-          (c) =>
-            String(c.id) === String(id) ||
-            String(c.ctfd_id) === String(id) ||
-            c.fta_id?.toLowerCase() === String(id).toLowerCase()
-        ) || ALL_15_CHALLENGES[0];
+        cData = findChallenge(id) || ALL_15_CHALLENGES[0];
       }
 
       const meta = getChallengeMeta(cData.name || cData.fta_id || id) || {};
-      const lvl = meta.level || cData.level || (cData.value === 50 ? 'Easy' : cData.value === 100 ? 'Medium' : 'Hard');
+      const lvl = meta.level || cData.level || (cData.value === 50 ? 'Easy' : cData.value === 100 ? 'Medium' : cData.value === 25 ? 'Bonus' : 'Hard');
       const ftaId = meta.fta_id || cData.fta_id || (cData.name ? cData.name.slice(0, 3) : 'E01');
       const act = meta.act || cData.act || (lvl === 'Easy' ? 'The Street Job' : lvl === 'Medium' ? 'The Big Heist' : 'The Final Getaway');
 
@@ -102,7 +102,7 @@ export default function MissionBriefing() {
         fta_id: ftaId,
         level: lvl,
         act,
-        reward: meta.reward || cData.value || cData.reward || (lvl === 'Easy' ? 50 : lvl === 'Medium' ? 100 : 160),
+        reward: meta.reward || cData.value || cData.reward || (lvl === 'Easy' ? 50 : lvl === 'Medium' ? 100 : lvl === 'Bonus' ? 25 : 160),
         location: meta.location || cData.location || 'Los Santos Underground',
         description: meta.briefing || cData.description || cData.briefing,
         briefing: meta.briefing || cData.briefing || cData.description,
@@ -402,6 +402,26 @@ export default function MissionBriefing() {
             {/* Tab: Briefing */}
             {activeTab === 'briefing' && (
               <div className="hud-panel p-6 rounded-lg space-y-4">
+                {challenge.game && (
+                  <Link
+                    to={`/bonus/${challenge.game}`}
+                    className="flex justify-between items-center gap-4 p-4 rounded cursor-pointer transition"
+                    style={{ background: 'rgba(0,229,255,0.08)', border: '1px solid #00E5FF' }}
+                  >
+                    <div>
+                      <div className="font-mono text-xs uppercase tracking-widest" style={{ color: '#00E5FF' }}>
+                        🎮 INTERACTIVE COMPONENT — REQUIRED
+                      </div>
+                      <div className="font-mono text-xs text-gray-400 mt-1">
+                        This job ships an on-site mini-game. Win it to recover the key, then apply it to the downloaded artefact.
+                      </div>
+                    </div>
+                    <span className="btn-outline-heist py-1.5 px-4 text-xs font-mono whitespace-nowrap">
+                      PLAY MINI-GAME →
+                    </span>
+                  </Link>
+                )}
+
                 <h3 className="text-sm font-mono uppercase text-gray-400 tracking-wider">
                   SITUATION BRIEFING
                 </h3>
@@ -606,6 +626,8 @@ export default function MissionBriefing() {
                       type="text"
                       value={flag}
                       onChange={(e) => setFlag(e.target.value)}
+                      onPaste={(e) => e.preventDefault()}
+                      onDrop={(e) => e.preventDefault()}
                       placeholder="FTA{...}"
                       disabled={submitting || isLocked}
                       className="heist-input rounded font-mono uppercase tracking-wider"

@@ -1,0 +1,9 @@
+DISPATCH TAPE // raw XOR-masked packet log
+The desk key is 16 ASCII bytes. Win the Simon dispatch game on the
+event site to make the desk print it, then XOR it across these bytes.
+
+CIPHERTEXT (hex):
+731d0c4b3d1c29015b0f47603a3b722f047c3d043a4e2c6e442507217035
+
+-- scratch note --
+FTA{n0t_th3_r34l_s3qu3nc3}

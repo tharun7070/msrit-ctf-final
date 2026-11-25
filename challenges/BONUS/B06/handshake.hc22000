@@ -1,0 +1,5 @@
+WPA*02*LSVAN-HANDSHAKE-2026
+SSID=FBI Surveillance Van
+SALT=4c5356616e2d53616c742d3230323621
+BLOB=e6d2f97deb2e09240492a8aa737491abf8ea0399df218fdac36af88fd99e94edd6b2d67b
+# toy capture: one salt + one blob, no real 4-way handshake

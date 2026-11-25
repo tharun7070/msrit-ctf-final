@@ -75,6 +75,28 @@ services:
     networks:
       - ctfd_network
 
+  # Bonus wave auto-reveal — flips the 10 hidden bonus challenges visible at T+offset.
+  # Configure with EVENT_START (+BONUS_REVEAL_OFFSET_MINUTES, default 60) or an absolute
+  # BONUS_REVEAL_AT. Zero manual action on event day.
+  bonus-reveal:
+    build:
+      context: ./organizer_private/CTFD_IMPORT
+      dockerfile: Dockerfile.reveal
+    restart: on-failure
+    depends_on:
+      ctfd:
+        condition: service_healthy
+    environment:
+      - CTFD_URL=http://ctfd:8000
+      - CTFD_TOKEN=${CTFD_TOKEN:-}
+      - BONUS_REVEAL_AT=${BONUS_REVEAL_AT:-}
+      - EVENT_START=${EVENT_START:-}
+      - BONUS_REVEAL_OFFSET_MINUTES=${BONUS_REVEAL_OFFSET_MINUTES:-60}
+    volumes:
+      - ./organizer_private/CTFD_IMPORT:/app:ro
+    networks:
+      - ctfd_network
+
 volumes:
   ctfd_db:
   ctfd_uploads:

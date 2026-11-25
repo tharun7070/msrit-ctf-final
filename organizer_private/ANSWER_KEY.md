@@ -1,6 +1,6 @@
 # PRIVATE ANSWER KEY · DO NOT DISTRIBUTE
 
-**Security classification: organizer only.** Contains all 25 exact flags and reference walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or student shares. Correct score for each mission is listed below; total bounty $2,200.
+**Security classification: organizer only.** Contains all 25 main-event flags plus the 10 bonus-wave flags (revealed at T+60min) and reference walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or student shares. Main-event bounty $2,200; bonus wave $250 ($25 x 10).
 
 ## E01 · Lester’s Pager Panic — 50 points
 
@@ -252,6 +252,12 @@ Call sign_debug on a fixed message to collect a correct and a faulty signature; 
 2. The order must carry a nonce that only the second, timing-based route will reveal, and it changes every process.
 3. A correctly-signed order under the wrong role — or with a stale/wrong nonce — is still refused. The brief's parameters are bait.
 
+### Offline bonus hint (reward for the on-site physical task)
+
+OFFLINE BONUS HINT (reward for the crew fitness check / equivalent logic task): The debug route faults in EITHER half, so never assume your gcd landed on p — check p*q == n and keep whichever prime falls out. If a gcd returns n itself (both halves faulted at once), throw that signature away and collect another. The timing route leaks the nonce one byte at a time against a candidate guess, so treat it as a yes/no per candidate byte instead of brute-forcing the whole value. The freshness window stated in AUDIT_BRIEF.txt is real — build and submit the order immediately after you sign it.
+
+_Read this to the crew (or hand it over) once they complete the task. It is not imported into CTFd and does not deduct points._
+
 ---
 
 ## H05 · Last Ride Out — 160 points
@@ -269,6 +275,12 @@ Parse the TLV transcript: shares A/B are bound (32B element + 16B tag = 48B) whi
 1. More than three voices are on the line. Read the framing: some contributions carry a binding tag and some do not — the unbound ones are trusted.
 2. The session secret is a weighted product of the contributions, not a sum; steering it means solving for a share value rather than picking one.
 3. There are decoy key-confirmations. The real one sits between them, and the payload is nested twice.
+
+### Offline bonus hint (reward for the on-site physical task)
+
+OFFLINE BONUS HINT (reward for collecting and solving the paper riddle from the organizer desk): Exactly two of the four contributions ship REDUCED — a bare 32-byte element with no binding tag, re-advertised on the wire. Those are the two seats you can steer; the other two are bound (32-byte element + 16-byte tag) and already fixed, so F is a weighted product of one per-seat exponent applied in seat order and you only need to solve for a single reduced share's value. Pick a target session secret you can compute yourself, then invert that seat's exponent modulo (p-1): XC = (Y* · R⁻¹)^(13⁻¹ mod (p-1)). The genuine agreement confirmation sits between two decoys, and the payload is AES-GCM on the outside and AES-CBC on the inside.
+
+_Read this to the crew (or hand it over) once they complete the task. It is not imported into CTFd and does not deduct points._
 
 ---
 
@@ -449,5 +461,189 @@ Parse the pcap, reassemble each TCP 4-tuple, and read NC2 frames: magic 'NC2\x01
 1. Do not trust a frame you cannot authenticate. An HMAC tag covers every real frame, and it is keyed by the session id from Part 2 — replays and the tampered frame simply drop out.
 2. The key stream is chained: each frame mixes the previous authenticated frame's tag, so the frames must be decrypted strictly in order, not gathered and sorted after the fact.
 3. One flow on the wire belongs to a different session that never authenticates under your key. The plaintext diagnostic broadcast is a plant; its archived flag is bait and will be rejected.
+
+---
+
+# BONUS WAVE — revealed at T+60min · $25 each
+
+Four of these (B01-B04) ship an on-site browser mini-game; the game reveals a key the player then applies by hand to the downloaded artefact. The remainder are standalone downloads.
+
+## B01 · Simon Says: Dispatch Edition — 25 points
+
+**Category:** Interactive game | **Location:** Dispatch Desk  
+**Correct flag:** `FTA{s1m0n_s4ys_d15p4tch_qu3u3}`  
+**Required evidence:** `dispatch_tape.txt`
+
+### Solving procedure
+
+Win the on-site Simon game (repeat the 8-tone sequence with no error) to reveal the 16-byte ASCII key 5IM0N-D15P4TCH-K. dispatch_tape.txt holds hex == flag XOR (key repeated); XOR the repeating key over the decoded bytes to recover the flag.
+
+### Progressive hints (shown in CTFd)
+
+1. The tape is XOR-masked with a fixed ASCII key. The game hands you that key — but only if you keep the sequence perfect.
+2. Watch the four tones, not the colours; one wrong note resets the whole desk.
+3. Once you hold the key, XOR it byte-for-byte across the hex in dispatch_tape.txt.
+
+---
+
+## B02 · The Reflex Job — 25 points
+
+**Category:** Interactive game | **Location:** Alarm Grid  
+**Correct flag:** `FTA{r3fl3x_j0b_0n3_m1ll1s3c0nd_w1nd0w}`  
+**Required evidence:** `reflex_log.txt`
+
+### Solving procedure
+
+Hit the reaction target in under 200 ms to print the 16-byte key R3FL3X-W1ND0W-26. reflex_log.txt hex == flag XOR (key repeated); XOR to recover the flag.
+
+### Progressive hints (shown in CTFd)
+
+1. The log is XOR-masked; the game prints the exact key only on a clean, fast hit.
+2. Speed matters to the millisecond — the window is unforgiving.
+3. XOR the repeating ASCII key across the hex in reflex_log.txt.
+
+---
+
+## B03 · Captain's Log, Star Date Whatever — 25 points
+
+**Category:** Interactive game | **Location:** Bridge Terminal  
+**Correct flag:** `FTA{c4pt41ns_l0g_c0mm4nd_sh3ll}`  
+**Required evidence:** `starship_manifest.txt`
+
+### Solving procedure
+
+In the on-site terminal issue: help -> scan -> unlock --code 4702 -> override warp. `override warp` prints key WARP-C0RE-K3Y-26. starship_manifest.txt hex == flag XOR (key repeated); XOR to recover.
+
+### Progressive hints (shown in CTFd)
+
+1. Type `help` first; the terminal is honest about what it understands.
+2. One command needs the ship's override code — it is written where a captain would keep it.
+3. The manifest is XOR-masked with the 16-byte key the terminal prints on unlock.
+
+---
+
+## B04 · Achievement Unlocked: Touched Grass — 25 points
+
+**Category:** Interactive game | **Location:** The Outside  
+**Correct flag:** `FTA{4ch13v3m3nt_unl0ck3d_t0uch3d_gr4ss}`  
+**Required evidence:** `achievements.json`
+
+### Solving procedure
+
+In the on-site patched-achievement gag, leave the page untouched for 30 continuous seconds (any input resets). The achievement T0UCH3D-GR4SS-26 is then revealed as the key. achievements.json hex == flag XOR (key repeated); XOR to recover.
+
+### Progressive hints (shown in CTFd)
+
+1. The rarest achievements are not earned by doing something. They are earned by not doing anything.
+2. Any input — any click or key at all — resets the timer. Leave it alone.
+3. The JSON is XOR-masked with the achievement string the launcher finally prints.
+
+---
+
+## B05 · Niko's Pizza Receipt — 25 points
+
+**Category:** Misc | **Location:** Pizza This  
+**Correct flag:** `FTA{n1k0s_p1zz4_r3c31pt_0v3rch4rg3}`  
+**Required evidence:** `receipt.txt`
+
+### Solving procedure
+
+receipt.txt lists qty x unit_price per line plus a printed TOTAL and an OVERCHARGE_BLOB (hex). The true itemised sum is 4317 cents; the printed TOTAL is 5654; the overcharge is 1337 cents. XOR the blob with the 4-byte little-endian value 1337, repeated, to recover the flag.
+
+### Progressive hints (shown in CTFd)
+
+1. Add up qty x unit price yourself; do not trust the printed TOTAL.
+2. The overcharge is a whole number of cents, and it is the key.
+3. XOR OVERCHARGE_BLOB with the overcharge as a 4-byte little-endian value, repeated.
+
+---
+
+## B06 · Wi-Fi Named 'FBI Surveillance Van' — 25 points
+
+**Category:** Cryptography | **Location:** Los Santos Suburbs  
+**Correct flag:** `FTA{w1f1_n4m3d_fb1_surv31ll4nc3_v4n}`  
+**Required evidence:** `handshake.hc22000`, `wordlist.txt`
+
+### Solving procedure
+
+handshake.hc22000 stores SALT=<hex> and BLOB=<hex>. For each candidate passphrase in wordlist.txt compute ks = PBKDF2-HMAC-SHA256(passphrase.encode(), salt, 60000, dklen=32) and XOR it across BLOB. The passphrase 'surveillance-van-2026' yields a plaintext starting FTA{ (the flag); every other candidate yields garbage.
+
+### Progressive hints (shown in CTFd)
+
+1. The capture is a toy, not a real 4-way handshake: one salt plus one ciphertext blob.
+2. The passphrase is in the supplied wordlist, and it is exactly the kind of thing this network owner would pick.
+3. Keystream = PBKDF2-HMAC-SHA256(passphrase, salt, 60000, dklen=32); XOR it across the blob; the right passphrase yields text beginning FTA{.
+
+---
+
+## B07 · Rick Roll Protocol — 25 points
+
+**Category:** Cryptography | **Location:** The Internet  
+**Correct flag:** `FTA{r1ckr0ll_pr0t0c0l_n3v3r_g0nn4_g1v3}`  
+**Required evidence:** `lyrics_cipher.txt`
+
+### Solving procedure
+
+lyrics_cipher.txt = Vigenere(rail_fence(flag, width=5), key='nevergonnagiveyouup'). Reverse the rail fence (width 5) first, then Vigenere-decrypt with key 'nevergonnagiveyouup' to recover the flag. A decoy line decodes to a fake flag if you skip the transposition.
+
+### Progressive hints (shown in CTFd)
+
+1. Two layers sit here: a transposition over a substitution.
+2. The substitution key is the exact lyric phrase everyone in Los Santos knows but refuses to type.
+3. Undo a rail-fence of width 5 first, then Vigenere-decrypt with key 'nevergonnagiveyouup'.
+
+---
+
+## B08 · 404 Flag Not Found — 25 points
+
+**Category:** Web security | **Location:** Some Server  
+**Correct flag:** `FTA{404_fl4g_n0t_f0und_b4s364_h34d3rs}`  
+**Required evidence:** `raw_http_response.txt`
+
+### Solving procedure
+
+raw_http_response.txt is a raw HTTP/1.1 response. Header X-Courier-Route = base64(base64(flag)); decode it twice. The rendered body contains a decoy FTA{404_fake_page}.
+
+### Progressive hints (shown in CTFd)
+
+1. It is a raw HTTP response, not HTML. Read the headers, not the pretty page.
+2. A non-standard header carries the payload, and it is encoded twice.
+3. Decode the X-Courier-Route header value as base64, then base64 again. The body's 'flag' is bait.
+
+---
+
+## B09 · Facebook Marketplace Rugpull — 25 points
+
+**Category:** OSINT | **Location:** Marketplace  
+**Correct flag:** `FTA{fb_m4rk3tpl4c3_rugpull_pr1c3}`  
+**Required evidence:** `listing.json`, `chat_log.txt`
+
+### Solving procedure
+
+listing.json shows ask 4200 and holds COURIER_BLOB (base64 of flag XOR keystream). chat_log.txt reveals 'final price: $3699'. XOR COURIER_BLOB (after base64-decoding) with the 4-byte little-endian value 3699, repeated, to recover the flag.
+
+### Progressive hints (shown in CTFd)
+
+1. The asking price is not the agreed price. The seller said the real number in chat.
+2. The agreed price is a whole number of dollars and it is the key.
+3. XOR the listing's base64 blob with the agreed price as a 4-byte little-endian value, repeated.
+
+---
+
+## B10 · Grand Theft Alpaca: Install Linux — 25 points
+
+**Category:** Reverse engineering | **Location:** A Basement  
+**Correct flag:** `FTA{gr4nd_th3ft_4lp4c4_1nst4ll_l1nux}`  
+**Required evidence:** `installer_script.sh`
+
+### Solving procedure
+
+installer_script.sh contains interleaved decoy jokes (rm -rf jokes, a fake FTA{...} comment) and a real payload: echo '<b64>' | base64 -d | base64 -d. Double-decode the final base64 line to recover the flag.
+
+### Progressive hints (shown in CTFd)
+
+1. Most lines are jokes. Only the ones that actually pipe data matter.
+2. The payload is handed around with echo | base64 -d, twice.
+3. There are decoy flags in the comments. The real one decodes from the final base64 line.
 
 ---

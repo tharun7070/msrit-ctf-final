@@ -3,10 +3,13 @@ import sys
 from pathlib import Path
 
 dist = Path(r"d:\ctf\FLAG_THEFT_AUTO_FINAL\frontend\dist")
-manifest = Path(r"d:\ctf\FLAG_THEFT_AUTO_FINAL\organizer_private\CTFD_IMPORT\manifest.json")
+import_dir = Path(r"d:\ctf\FLAG_THEFT_AUTO_FINAL\organizer_private\CTFD_IMPORT")
 
-data = json.loads(manifest.read_text(encoding="utf-8"))
-flags = [c["flag"] for c in data["challenges"]]
+flags = []
+for name in ("manifest.json", "manifest_bonus.json"):
+    path = import_dir / name
+    if path.is_file():
+        flags += [c["flag"] for c in json.loads(path.read_text(encoding="utf-8"))["challenges"]]
 
 found = []
 for p in dist.rglob("*"):
@@ -20,4 +23,4 @@ if found:
     print(f"[-] LEAK DETECTED: {found}")
     sys.exit(1)
 else:
-    print("[+] SUCCESS: Zero private flags leaked in production dist bundle.")
+    print(f"[+] SUCCESS: Zero private flags ({len(flags)}) leaked in production dist bundle.")

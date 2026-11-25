@@ -1,5 +1,5 @@
 /**
- * Local metadata for all 25 challenges.
+ * Local metadata for all 25 main-event challenges plus the 10-challenge bonus wave.
  * This file contains ONLY participant-safe information:
  * challenge names, locations, descriptions visible in MISSION.md.
  * NO flags, NO solutions, NO private data.
@@ -267,6 +267,110 @@ export const CHALLENGE_META = {
     hints: ['Do not trust a frame you cannot authenticate. An HMAC tag covers every real frame, and it is keyed by the session id from Part 2 — replays and the tampered frame simply drop out.', 'The key stream is chained: each frame mixes the previous authenticated frame\'s tag, so the frames must be decrypted strictly in order, not gathered and sorted after the fact.', 'One flow on the wire belongs to a different session that never authenticates under your key. The plaintext diagnostic broadcast is a plant; its archived flag is bait and will be rejected.'],
     files: ['nightshift_c2.pcap', 'C2_NOTES.txt'],
   },
+  'B01 | Simon Says: Dispatch Edition': {
+    fta_id: 'B01', level: 'Bonus', act: 'Bonus Wave',
+    location: 'Dispatch Desk', topic: 'Memory game + keyed XOR',
+    missionNum: 26, reward: 25,
+    thumbnail: '/images/jason-1.webp',
+    game: 'simon',
+    briefing: 'The night dispatcher will only speak in sequences. Repeat the call-backs cleanly and the desk coughs up an access key; without it the tape you pulled is just noise.',
+    objective: 'Beat the dispatch memory game to earn the key, then unmask the tape.',
+    hints: ['The tape is XOR-masked with a fixed ASCII key. The game hands you that key — but only if you keep the sequence perfect.', 'Watch the four tones, not the colours; one wrong note resets the whole desk.', 'Once you hold the key, XOR it byte-for-byte across the hex in dispatch_tape.txt.'],
+    files: ['dispatch_tape.txt'],
+  },
+  'B02 | The Reflex Job': {
+    fta_id: 'B02', level: 'Bonus', act: 'Bonus Wave',
+    location: 'Alarm Grid', topic: 'Reaction game + keyed XOR',
+    missionNum: 27, reward: 25,
+    thumbnail: '/images/jason-2.webp',
+    game: 'reflex',
+    briefing: 'An alarm you have to outrun with reflexes alone. Hit the window tight enough and the rig prints a key; miss and it just runs again.',
+    objective: 'Pass the reaction test to earn the key, then decode the rig log.',
+    hints: ['The log is XOR-masked; the game prints the exact key only on a clean, fast hit.', 'Speed matters to the millisecond — the window is unforgiving.', 'XOR the repeating ASCII key across the hex in reflex_log.txt.'],
+    files: ['reflex_log.txt'],
+  },
+  'B03 | Captain\'s Log, Star Date Whatever': {
+    fta_id: 'B03', level: 'Bonus', act: 'Bonus Wave',
+    location: 'Bridge Terminal', topic: 'Command-parsing game + keyed XOR',
+    missionNum: 28, reward: 25,
+    thumbnail: '/images/jason-3.webp',
+    game: 'terminal',
+    briefing: 'The bridge terminal only listens to a captain who knows the ship. Talk it into unlocking the log and it prints the key to the manifest.',
+    objective: 'Issue the right commands to the in-browser terminal and decode the manifest.',
+    hints: ['Type `help` first; the terminal is honest about what it understands.', 'One command needs the ship\'s override code — it is written where a captain would keep it.', 'The manifest is XOR-masked with the 16-byte key the terminal prints on unlock.'],
+    files: ['starship_manifest.txt'],
+  },
+  'B04 | Achievement Unlocked: Touched Grass': {
+    fta_id: 'B04', level: 'Bonus', act: 'Bonus Wave',
+    location: 'The Outside', topic: 'Patience/idle game + keyed XOR',
+    missionNum: 29, reward: 25,
+    thumbnail: '/images/lucia-1.webp',
+    game: 'idle',
+    briefing: 'Every gamer knows the rarest achievement there is: log off and go outside. The launcher refuses to reveal anything until you do precisely nothing for a while.',
+    objective: 'Earn the achievement, then decode the launcher manifest.',
+    hints: ['The rarest achievements are not earned by doing something. They are earned by not doing anything.', 'Any input — any click or key at all — resets the timer. Leave it alone.', 'The JSON is XOR-masked with the achievement string the launcher finally prints.'],
+    files: ['achievements.json'],
+  },
+  'B05 | Niko\'s Pizza Receipt': {
+    fta_id: 'B05', level: 'Bonus', act: 'Bonus Wave',
+    location: 'Pizza This', topic: 'Receipt arithmetic + keyed XOR',
+    missionNum: 30, reward: 25,
+    thumbnail: '/images/lucia-2.webp',
+    briefing: 'Niko swears the pizza place skimmed him. The receipt adds up to nothing sensible and there is a blob stapled to the bottom; work out by how much he was fleeced and you can unwrap it.',
+    objective: 'Find the overcharge on the itemised receipt and unwrap the blob.',
+    hints: ['Add up qty x unit price yourself; do not trust the printed TOTAL.', 'The overcharge is a whole number of cents, and it is the key.', 'XOR OVERCHARGE_BLOB with the overcharge as a 4-byte little-endian value, repeated.'],
+    files: ['receipt.txt'],
+  },
+  'B06 | Wi-Fi Named \'FBI Surveillance Van\'': {
+    fta_id: 'B06', level: 'Bonus', act: 'Bonus Wave',
+    location: 'Los Santos Suburbs', topic: 'Weak-passphrase WPA-style KDF + blob',
+    missionNum: 31, reward: 25,
+    thumbnail: '/images/lucia-3.webp',
+    briefing: 'Someone\'s home Wi-Fi is literally called \'FBI Surveillance Van\', which is either a joke or the worst OPSEC in Los Santos. A handshake was captured and the passphrase is presumably worse than the SSID.',
+    objective: 'Recover the passphrase, derive the keystream, and unwrap the captured blob.',
+    hints: ['The capture is a toy, not a real 4-way handshake: one salt plus one ciphertext blob.', 'The passphrase is in the supplied wordlist, and it is exactly the kind of thing this network owner would pick.', 'Keystream = PBKDF2-HMAC-SHA256(passphrase, salt, 60000, dklen=32); XOR it across the blob; the right passphrase yields text beginning FTA{.'],
+    files: ['handshake.hc22000', 'wordlist.txt'],
+  },
+  'B07 | Rick Roll Protocol': {
+    fta_id: 'B07', level: 'Bonus', act: 'Bonus Wave',
+    location: 'The Internet', topic: 'Lyric-keyed Vigenere + rail fence',
+    missionNum: 32, reward: 25,
+    thumbnail: '/images/jason-1.webp',
+    briefing: 'A courier left a love letter that is 100 percent definitely not a rickroll. Decode it properly and it will tell you the rules, and then hand you the flag.',
+    objective: 'Unwind the two cipher layers and recover the flag.',
+    hints: ['Two layers sit here: a transposition over a substitution.', 'The substitution key is the exact lyric phrase everyone in Los Santos knows but refuses to type.', 'Undo a rail-fence of width 5 first, then Vigenere-decrypt with key \'nevergonnagiveyouup\'.'],
+    files: ['lyrics_cipher.txt'],
+  },
+  'B08 | 404 Flag Not Found': {
+    fta_id: 'B08', level: 'Bonus', act: 'Bonus Wave',
+    location: 'Some Server', topic: 'HTTP header parsing + double base64',
+    missionNum: 33, reward: 25,
+    thumbnail: '/images/jason-2.webp',
+    briefing: 'You requested a page; the server returned a joke and a wall of headers. The interesting part was never in the body.',
+    objective: 'Read the response like a machine, not a browser, and recover the flag.',
+    hints: ['It is a raw HTTP response, not HTML. Read the headers, not the pretty page.', 'A non-standard header carries the payload, and it is encoded twice.', 'Decode the X-Courier-Route header value as base64, then base64 again. The body\'s \'flag\' is bait.'],
+    files: ['raw_http_response.txt'],
+  },
+  'B09 | Facebook Marketplace Rugpull': {
+    fta_id: 'B09', level: 'Bonus', act: 'Bonus Wave',
+    location: 'Marketplace', topic: 'Listing JSON + chat-price XOR',
+    missionNum: 34, reward: 25,
+    thumbnail: '/images/jason-3.webp',
+    briefing: 'A \'cheap car, no lowballers, I know what I have\' listing goes sideways. The listing and the seller\'s own chat log disagree; the price you were actually quoted is the key.',
+    objective: 'Reconcile the listing with the chat and unwrap the blob.',
+    hints: ['The asking price is not the agreed price. The seller said the real number in chat.', 'The agreed price is a whole number of dollars and it is the key.', 'XOR the listing\'s base64 blob with the agreed price as a 4-byte little-endian value, repeated.'],
+    files: ['listing.json', 'chat_log.txt'],
+  },
+  'B10 | Grand Theft Alpaca: Install Linux': {
+    fta_id: 'B10', level: 'Bonus', act: 'Bonus Wave',
+    location: 'A Basement', topic: 'Obfuscated shell script + base64',
+    missionNum: 35, reward: 25,
+    thumbnail: '/images/lucia-1.webp',
+    briefing: 'To claim the alpaca you must prove you can daily-drive a Linux desktop. The so-called installer is 90 percent jokes and 10 percent payload; run the logic in your head and it hands over the flag.',
+    objective: 'Read the script like a machine and recover the embedded payload.',
+    hints: ['Most lines are jokes. Only the ones that actually pipe data matter.', 'The payload is handed around with echo | base64 -d, twice.', 'There are decoy flags in the comments. The real one decodes from the final base64 line.'],
+    files: ['installer_script.sh'],
+  },
 };
 
 /**
@@ -285,8 +389,8 @@ export function normalizeName(str) {
  * Bulletproof resolver that matches challenge metadata by:
  * 1. Direct name match
  * 2. Normalized name match (handling unicode vs ascii apostrophes)
- * 3. fta_id prefix (E01, M03, H05)
- * 4. Mission index (1-25)
+ * 3. fta_id prefix (E01, M03, H05, B07)
+ * 4. Mission index (1-35)
  */
 export function getChallengeMeta(identifier) {
   if (!identifier) return {};
@@ -301,8 +405,8 @@ export function getChallengeMeta(identifier) {
     if (normalizeName(key) === norm) return meta;
   }
 
-  // 3. Match by fta_id prefix (e.g. "E01 | ...", "E01", or "m02")
-  const idMatch = s.match(/([EMH]\d{2})/i);
+  // 3. Match by fta_id prefix (e.g. "E01 | ...", "E01", "m02", or "B07")
+  const idMatch = s.match(/([EMHB]\d{2})/i);
   if (idMatch) {
     const ftaId = idMatch[1].toUpperCase();
     for (const meta of Object.values(CHALLENGE_META)) {
@@ -321,7 +425,7 @@ export function getChallengeMeta(identifier) {
   return {};
 }
 
-// Canonical ordered list of all 25 authentic challenges
+// Canonical ordered list of the 25 main-event challenges
 export const ALL_15_CHALLENGES = [
   {
     id: 1, ctfd_id: 1, fta_id: 'E01', name: 'E01 | Lester’s Pager Panic',
@@ -550,14 +654,114 @@ export const ALL_15_CHALLENGES = [
   },
 ];
 
-export const LEVEL_ORDER = { Easy: 1, Medium: 2, Hard: 3 };
+// Bonus wave (10 x $25) — CTFd keeps these hidden until T+60min after the
+// event begins; they surface on the board automatically once revealed.
+export const BONUS_CHALLENGES = [
+  {
+    id: 26, ctfd_id: 26, fta_id: 'B01', name: 'B01 | Simon Says: Dispatch Edition',
+    level: 'Bonus', act: 'Bonus Wave', location: 'Dispatch Desk',
+    category: 'Interactive game', topic: 'Memory game + keyed XOR', value: 25, reward: 25,
+    files: ['dispatch_tape.txt'], thumbnail: '/images/jason-1.webp', game: 'simon',
+    briefing: 'The night dispatcher will only speak in sequences. Repeat the call-backs cleanly and the desk coughs up an access key; without it the tape you pulled is just noise.',
+    objective: 'Beat the dispatch memory game to earn the key, then unmask the tape.',
+    hints: ['The tape is XOR-masked with a fixed ASCII key. The game hands you that key — but only if you keep the sequence perfect.', 'Watch the four tones, not the colours; one wrong note resets the whole desk.', 'Once you hold the key, XOR it byte-for-byte across the hex in dispatch_tape.txt.'],
+  },
+  {
+    id: 27, ctfd_id: 27, fta_id: 'B02', name: 'B02 | The Reflex Job',
+    level: 'Bonus', act: 'Bonus Wave', location: 'Alarm Grid',
+    category: 'Interactive game', topic: 'Reaction game + keyed XOR', value: 25, reward: 25,
+    files: ['reflex_log.txt'], thumbnail: '/images/jason-2.webp', game: 'reflex',
+    briefing: 'An alarm you have to outrun with reflexes alone. Hit the window tight enough and the rig prints a key; miss and it just runs again.',
+    objective: 'Pass the reaction test to earn the key, then decode the rig log.',
+    hints: ['The log is XOR-masked; the game prints the exact key only on a clean, fast hit.', 'Speed matters to the millisecond — the window is unforgiving.', 'XOR the repeating ASCII key across the hex in reflex_log.txt.'],
+  },
+  {
+    id: 28, ctfd_id: 28, fta_id: 'B03', name: 'B03 | Captain\'s Log, Star Date Whatever',
+    level: 'Bonus', act: 'Bonus Wave', location: 'Bridge Terminal',
+    category: 'Interactive game', topic: 'Command-parsing game + keyed XOR', value: 25, reward: 25,
+    files: ['starship_manifest.txt'], thumbnail: '/images/jason-3.webp', game: 'terminal',
+    briefing: 'The bridge terminal only listens to a captain who knows the ship. Talk it into unlocking the log and it prints the key to the manifest.',
+    objective: 'Issue the right commands to the in-browser terminal and decode the manifest.',
+    hints: ['Type `help` first; the terminal is honest about what it understands.', 'One command needs the ship\'s override code — it is written where a captain would keep it.', 'The manifest is XOR-masked with the 16-byte key the terminal prints on unlock.'],
+  },
+  {
+    id: 29, ctfd_id: 29, fta_id: 'B04', name: 'B04 | Achievement Unlocked: Touched Grass',
+    level: 'Bonus', act: 'Bonus Wave', location: 'The Outside',
+    category: 'Interactive game', topic: 'Patience/idle game + keyed XOR', value: 25, reward: 25,
+    files: ['achievements.json'], thumbnail: '/images/lucia-1.webp', game: 'idle',
+    briefing: 'Every gamer knows the rarest achievement there is: log off and go outside. The launcher refuses to reveal anything until you do precisely nothing for a while.',
+    objective: 'Earn the achievement, then decode the launcher manifest.',
+    hints: ['The rarest achievements are not earned by doing something. They are earned by not doing anything.', 'Any input — any click or key at all — resets the timer. Leave it alone.', 'The JSON is XOR-masked with the achievement string the launcher finally prints.'],
+  },
+  {
+    id: 30, ctfd_id: 30, fta_id: 'B05', name: 'B05 | Niko\'s Pizza Receipt',
+    level: 'Bonus', act: 'Bonus Wave', location: 'Pizza This',
+    category: 'Misc', topic: 'Receipt arithmetic + keyed XOR', value: 25, reward: 25,
+    files: ['receipt.txt'], thumbnail: '/images/lucia-2.webp',
+    briefing: 'Niko swears the pizza place skimmed him. The receipt adds up to nothing sensible and there is a blob stapled to the bottom; work out by how much he was fleeced and you can unwrap it.',
+    objective: 'Find the overcharge on the itemised receipt and unwrap the blob.',
+    hints: ['Add up qty x unit price yourself; do not trust the printed TOTAL.', 'The overcharge is a whole number of cents, and it is the key.', 'XOR OVERCHARGE_BLOB with the overcharge as a 4-byte little-endian value, repeated.'],
+  },
+  {
+    id: 31, ctfd_id: 31, fta_id: 'B06', name: 'B06 | Wi-Fi Named \'FBI Surveillance Van\'',
+    level: 'Bonus', act: 'Bonus Wave', location: 'Los Santos Suburbs',
+    category: 'Cryptography', topic: 'Weak-passphrase WPA-style KDF + blob', value: 25, reward: 25,
+    files: ['handshake.hc22000', 'wordlist.txt'], thumbnail: '/images/lucia-3.webp',
+    briefing: 'Someone\'s home Wi-Fi is literally called \'FBI Surveillance Van\', which is either a joke or the worst OPSEC in Los Santos. A handshake was captured and the passphrase is presumably worse than the SSID.',
+    objective: 'Recover the passphrase, derive the keystream, and unwrap the captured blob.',
+    hints: ['The capture is a toy, not a real 4-way handshake: one salt plus one ciphertext blob.', 'The passphrase is in the supplied wordlist, and it is exactly the kind of thing this network owner would pick.', 'Keystream = PBKDF2-HMAC-SHA256(passphrase, salt, 60000, dklen=32); XOR it across the blob; the right passphrase yields text beginning FTA{.'],
+  },
+  {
+    id: 32, ctfd_id: 32, fta_id: 'B07', name: 'B07 | Rick Roll Protocol',
+    level: 'Bonus', act: 'Bonus Wave', location: 'The Internet',
+    category: 'Cryptography', topic: 'Lyric-keyed Vigenere + rail fence', value: 25, reward: 25,
+    files: ['lyrics_cipher.txt'], thumbnail: '/images/jason-1.webp',
+    briefing: 'A courier left a love letter that is 100 percent definitely not a rickroll. Decode it properly and it will tell you the rules, and then hand you the flag.',
+    objective: 'Unwind the two cipher layers and recover the flag.',
+    hints: ['Two layers sit here: a transposition over a substitution.', 'The substitution key is the exact lyric phrase everyone in Los Santos knows but refuses to type.', 'Undo a rail-fence of width 5 first, then Vigenere-decrypt with key \'nevergonnagiveyouup\'.'],
+  },
+  {
+    id: 33, ctfd_id: 33, fta_id: 'B08', name: 'B08 | 404 Flag Not Found',
+    level: 'Bonus', act: 'Bonus Wave', location: 'Some Server',
+    category: 'Web security', topic: 'HTTP header parsing + double base64', value: 25, reward: 25,
+    files: ['raw_http_response.txt'], thumbnail: '/images/jason-2.webp',
+    briefing: 'You requested a page; the server returned a joke and a wall of headers. The interesting part was never in the body.',
+    objective: 'Read the response like a machine, not a browser, and recover the flag.',
+    hints: ['It is a raw HTTP response, not HTML. Read the headers, not the pretty page.', 'A non-standard header carries the payload, and it is encoded twice.', 'Decode the X-Courier-Route header value as base64, then base64 again. The body\'s \'flag\' is bait.'],
+  },
+  {
+    id: 34, ctfd_id: 34, fta_id: 'B09', name: 'B09 | Facebook Marketplace Rugpull',
+    level: 'Bonus', act: 'Bonus Wave', location: 'Marketplace',
+    category: 'OSINT', topic: 'Listing JSON + chat-price XOR', value: 25, reward: 25,
+    files: ['listing.json', 'chat_log.txt'], thumbnail: '/images/jason-3.webp',
+    briefing: 'A \'cheap car, no lowballers, I know what I have\' listing goes sideways. The listing and the seller\'s own chat log disagree; the price you were actually quoted is the key.',
+    objective: 'Reconcile the listing with the chat and unwrap the blob.',
+    hints: ['The asking price is not the agreed price. The seller said the real number in chat.', 'The agreed price is a whole number of dollars and it is the key.', 'XOR the listing\'s base64 blob with the agreed price as a 4-byte little-endian value, repeated.'],
+  },
+  {
+    id: 35, ctfd_id: 35, fta_id: 'B10', name: 'B10 | Grand Theft Alpaca: Install Linux',
+    level: 'Bonus', act: 'Bonus Wave', location: 'A Basement',
+    category: 'Reverse engineering', topic: 'Obfuscated shell script + base64', value: 25, reward: 25,
+    files: ['installer_script.sh'], thumbnail: '/images/lucia-1.webp',
+    briefing: 'To claim the alpaca you must prove you can daily-drive a Linux desktop. The so-called installer is 90 percent jokes and 10 percent payload; run the logic in your head and it hands over the flag.',
+    objective: 'Read the script like a machine and recover the embedded payload.',
+    hints: ['Most lines are jokes. Only the ones that actually pipe data matter.', 'The payload is handed around with echo | base64 -d, twice.', 'There are decoy flags in the comments. The real one decodes from the final base64 line.'],
+  },
+];
+
+// Minutes after event start at which the bonus wave becomes visible.
+export const BONUS_REVEAL_OFFSET_MINUTES = 60;
+
+export const LEVEL_ORDER = { Easy: 1, Medium: 2, Hard: 3, Bonus: 4 };
 export const LEVEL_COLORS = {
   Easy:   { border: 'rgba(57,255,20,0.4)',  text: '#39ff14', bg: 'rgba(57,255,20,0.08)' },
   Medium: { border: 'rgba(255,165,0,0.4)',  text: '#ffa500', bg: 'rgba(255,165,0,0.08)' },
   Hard:   { border: 'rgba(255,68,68,0.5)',  text: '#ff4444', bg: 'rgba(255,68,68,0.08)' },
+  Bonus:  { border: 'rgba(0,229,255,0.5)',  text: '#00e5ff', bg: 'rgba(0,229,255,0.08)' },
 };
 export const ACT_INFO = {
   'The Street Job':    { num: 'I',   total: '$500', count: 10 },
   'The Big Heist':     { num: 'II',  total: '$800', count: 8 },
   'The Final Getaway': { num: 'III', total: '$800', count: 5 },
+  'Bonus Wave':        { num: 'IV',  total: '$250', count: 10 },
 };

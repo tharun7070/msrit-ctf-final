@@ -12,6 +12,7 @@ except ImportError:
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parents[1]
 MANIFEST=HERE/'manifest.json'
+MANIFEST_BONUS=HERE/'manifest_bonus.json'
 
 class APIError(Exception):pass
 
@@ -28,7 +29,7 @@ def req(session,url,method,path,**kwargs):
   raise APIError(f'{method} {path}: API success=false (details withheld)')
  return payload.get('data')
 
-def ensure_manifest(root,manifest):
+def ensure_manifest(root,manifest,expected_count=25,expected_points=2200):
  ids=set();expected=0
  for ch in manifest['challenges']:
   assert ch['id'] not in ids;ids.add(ch['id'])
@@ -40,13 +41,20 @@ def ensure_manifest(root,manifest):
   for fn in ch['files']:
    assert Path(fn).name==fn and (directory/fn).is_file() and (directory/fn).stat().st_size>0
   assert len(ch['hints'])==3
- assert len(ids)==25 and expected==2200
+ assert len(ids)==expected_count and expected==expected_points
  return manifest['challenges']
 
 def run(args,session=None):
- man=json.loads(MANIFEST.read_text())
- challenges=ensure_manifest(ROOT,man)
- print('FLAG THEFT AUTO: 25 validated manifests / 2,200 points')
+ bonus=getattr(args,'bonus',False)
+ manifest_path=MANIFEST_BONUS if bonus else MANIFEST
+ man=json.loads(manifest_path.read_text())
+ if bonus:
+  challenges=ensure_manifest(ROOT,man,10,250)
+  reveal=man.get('reveal_offset_minutes',60)
+  print(f'FLAG THEFT AUTO BONUS WAVE: 10 validated manifests / 250 points (stays hidden until T+{reveal}min)')
+ else:
+  challenges=ensure_manifest(ROOT,man)
+  print('FLAG THEFT AUTO: 25 validated manifests / 2,200 points')
  if not args.apply:
   print('DRY RUN — no network calls or changes; flags are never printed')
   for ch in challenges:
@@ -91,13 +99,20 @@ def run(args,session=None):
     path=ROOT/ch['directory']/filename
     with path.open('rb') as file:
      req(session,url,'POST','/api/v1/files',data={'type':'challenge','challenge_id':str(challenge_id)},files={'file':(filename,file)})
-   # The challenge becomes visible ONLY after all private/public parts succeed.
-   req(session,url,'PATCH',f'/api/v1/challenges/{challenge_id}',json={'state':'visible'})
-   print(f"[OK] {ch['id']} imported and published: {len(ch['files'])} files, 3 hints")
+   if bonus:
+    # Bonus wave stays hidden; reveal_bonus.py flips it visible at T+offset.
+    print(f"[OK] {ch['id']} imported HIDDEN (awaits reveal): {len(ch['files'])} files, 3 hints")
+   else:
+    # The challenge becomes visible ONLY after all private/public parts succeed.
+    req(session,url,'PATCH',f'/api/v1/challenges/{challenge_id}',json={'state':'visible'})
+    print(f"[OK] {ch['id']} imported and published: {len(ch['files'])} files, 3 hints")
    count+=1
   except (APIError,KeyError) as ex:
    raise APIError(f"Import stopped at {ch['id']}. Partial challenge left hidden if creation succeeded. {ex}") from ex
- print(f'ALL DONE — {count} visible standard challenges; inspect them from a non-admin team account.')
+ if bonus:
+  print(f'ALL DONE — {count} bonus challenges imported hidden; they surface automatically at the scheduled reveal.')
+ else:
+  print(f'ALL DONE — {count} visible standard challenges; inspect them from a non-admin team account.')
  return {'created':count,'dry_run':False}
 
 def main():
@@ -106,6 +121,7 @@ def main():
  parser.add_argument('--url',default=os.environ.get('CTFD_URL'),help='CTFd base URL (or env CTFD_URL)')
  parser.add_argument('--token',help='CTFd admin token; prefer CTFD_TOKEN environment variable')
  parser.add_argument('--allow-http',action='store_true',help='allow plain HTTP only on trusted localhost/LAN')
+ parser.add_argument('--bonus',action='store_true',help='import the 10-challenge bonus wave as HIDDEN (revealed later at T+offset)')
  args=parser.parse_args()
  try:run(args)
  except (APIError,AssertionError,FileNotFoundError) as ex:print('ERROR:',ex,file=sys.stderr);sys.exit(1)

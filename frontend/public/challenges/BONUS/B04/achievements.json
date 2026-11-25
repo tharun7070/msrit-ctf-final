@@ -1,0 +1,30 @@
+{
+  "profile": "grasses_untouched",
+  "note": "The launcher withholds the key until you leave it alone. Any input resets it.",
+  "achievements": [
+    {
+      "id": "first_login",
+      "unlocked": true
+    },
+    {
+      "id": "opened_the_app",
+      "unlocked": true
+    },
+    {
+      "id": "t0uch_gr4ss_pls",
+      "unlocked": false,
+      "hint": "not this one"
+    },
+    {
+      "id": "go_outside",
+      "unlocked": false,
+      "hint": "closer"
+    },
+    {
+      "id": "leave_launcher_idle_30s",
+      "unlocked": false
+    }
+  ],
+  "payload_mask": "the achievement id the launcher prints on unlock, XOR, repeated",
+  "masked_payload_hex": "126414387c502c1c7424073e60434669215e39732b58774918260426304501520b5727773b4039"
+}

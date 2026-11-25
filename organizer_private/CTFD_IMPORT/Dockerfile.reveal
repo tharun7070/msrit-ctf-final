@@ -1,0 +1,8 @@
+# Slim image for the scheduled BONUS WAVE reveal container.
+# `requests` is baked in so the container needs no network at event start.
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir requests
+
+WORKDIR /app
+ENTRYPOINT ["python", "reveal_bonus.py"]

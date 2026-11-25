@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Integration builder for the FLAG THEFT AUTO challenge replacement.
 
-Single source of truth for the 25 rebuilt challenges. From the data below it
+Single source of truth for the 25 main-event rebuilt challenges plus the
+10-challenge BONUS wave (revealed at T+60min). From the data below it
 regenerates (data only -- no component structure, no styling):
 
-  * organizer_private/CTFD_IMPORT/manifest.json     (private flags)
+  * organizer_private/CTFD_IMPORT/manifest.json        (25 main, private flags)
+  * organizer_private/CTFD_IMPORT/manifest_bonus.json  (10 bonus, hidden until T+60)
   * organizer_private/CTFD_IMPORT/attachments_sha256.csv
   * organizer_private/ANSWER_KEY.md
   * organizer_private/CHALLENGE_MATRIX.csv
@@ -31,7 +33,8 @@ FLAGS = L.FLAGS
 ROOTS = [ROOT / "challenges",
          ROOT / "frontend" / "public" / "challenges",
          ROOT / "frontend" / "dist" / "challenges"]
-LEVELS = {"E": "EASY", "M": "MEDIUM", "H": "HARD"}
+LEVELS = {"E": "EASY", "M": "MEDIUM", "H": "HARD", "B": "BONUS"}
+BONUS_ACT = "Bonus Wave"
 
 # ---------------------------------------------------------------------------
 # 1. Challenge content (participant-safe).  Briefing/objective/hints/files.
@@ -190,6 +193,7 @@ CH = [
          hints=["The debug route blinds what it signs; undo the blinding before any faulty half becomes visible. It also faults rarely, and in either half.",
                 "The order must carry a nonce that only the second, timing-based route will reveal, and it changes every process.",
                 "A correctly-signed order under the wrong role — or with a stale/wrong nonce — is still refused. The brief's parameters are bait."],
+         bonus_hint="OFFLINE BONUS HINT (reward for the crew fitness check / equivalent logic task): The debug route faults in EITHER half, so never assume your gcd landed on p — check p*q == n and keep whichever prime falls out. If a gcd returns n itself (both halves faulted at once), throw that signature away and collect another. The timing route leaks the nonce one byte at a time against a candidate guess, so treat it as a yes/no per candidate byte instead of brute-forcing the whole value. The freshness window stated in AUDIT_BRIEF.txt is real — build and submit the order immediately after you sign it.",
          solution="Call sign_debug on a fixed message to collect a correct and a faulty signature; un-blind each (sig_blind * r^-1 mod n) first. Faults land in p or q, so gcd(bad^e - m mod n, n) may return either prime — accept both and check p*q == n. Recover d, derive the live audit nonce one byte at a time via the verify_debug timing oracle, assemble ADMIN_MESSAGE with that nonce + a fresh timestamp, sign it as role 'admin', and submit to read the flag from the FTA_H04_FLAG environment variable. Decoys: a legacy signed token that verifies but is refused, and wrong leads in AUDIT_BRIEF.txt."),
     dict(cid="H05", title="Last Ride Out", level="Hard", act="The Final Getaway",
          location="Final Getaway", category="Multilayer cryptography",
@@ -201,6 +205,7 @@ CH = [
          hints=["More than three voices are on the line. Read the framing: some contributions carry a binding tag and some do not — the unbound ones are trusted.",
                 "The session secret is a weighted product of the contributions, not a sum; steering it means solving for a share value rather than picking one.",
                 "There are decoy key-confirmations. The real one sits between them, and the payload is nested twice."],
+         bonus_hint="OFFLINE BONUS HINT (reward for collecting and solving the paper riddle from the organizer desk): Exactly two of the four contributions ship REDUCED — a bare 32-byte element with no binding tag, re-advertised on the wire. Those are the two seats you can steer; the other two are bound (32-byte element + 16-byte tag) and already fixed, so F is a weighted product of one per-seat exponent applied in seat order and you only need to solve for a single reduced share's value. Pick a target session secret you can compute yourself, then invert that seat's exponent modulo (p-1): XC = (Y* · R⁻¹)^(13⁻¹ mod (p-1)). The genuine agreement confirmation sits between two decoys, and the payload is AES-GCM on the outside and AES-CBC on the inside.",
          solution="Parse the TLV transcript: shares A/B are bound (32B element + 16B tag = 48B) while C/D are reduced (bare 32B) and re-advertised. The agreement value is Y = XA^5 * XB^11 * XC^13 * XD^17 mod p; the key is K = HKDF(salt, Y, info||sid). Choose an attacker-known target and solve for the injected C share XC = (Y* * R^-1)^(13^-1 mod (p-1)). Confirm against record 0x0020 (0x0021/0x0022 are decoys), then AES-256-GCM decrypt final_payload.enc and finally AES-256-CBC the inner blob."),
     # --- Wave 2 "namesake-easy" — labelled Easy, engineered to be brutal ---------
     dict(cid="E06", title="Payphone Static", level="Easy", act="The Street Job",
@@ -319,12 +324,140 @@ CH = [
          solution="Parse the pcap, reassemble each TCP 4-tuple, and read NC2 frames: magic 'NC2\\x01', ftype, u32 LE seq, 16-byte nonce, u16 LE ciphertext length, ciphertext, 16-byte tag. mac_key = sha256('NS-C2-MAC'||sid); frame tag = HMAC-SHA256(mac_key, header||ciphertext)[:16]. Use Part 2's endpoint (198.51.100.7:4444) to select the genuine flow and Part 2's session id as the key. Drop ftype-0 diagnostics, drop frames failing the tag, dedupe by seq, then decrypt in seq order: key stream = sha256 counter mode over ('NS-C2-KS'||prev_tag||nonce||seq||i), where prev_tag starts as the session id and becomes the previous authenticated frame's tag. The ftype-3 exfil plaintext carries the flag. Bait: the plaintext notice's FTA{n1ghtsh1ft_c2_s3ss10n_b41t_d0_n0t_subm1t} and the retired 203.0.113.9:4445 flow."),
 ]
 
+# ---------------------------------------------------------------------------
+# 1b. BONUS WAVE — released by the scheduler at T+60min. $25 each, mixed and
+# mostly comic. Four are browser mini-games on the event site; the rest are
+# standalone downloads. `game` (when present) is the on-site route slug.
+# ---------------------------------------------------------------------------
+BONUS = [
+    dict(cid="B01", title="Simon Says: Dispatch Edition", level="Bonus", act=BONUS_ACT,
+         location="Dispatch Desk", category="Interactive game",
+         topic="Memory game + keyed XOR", points=25, mission=26,
+         thumb="/images/jason-1.webp", game="simon",
+         briefing="The night dispatcher will only speak in sequences. Repeat the call-backs cleanly and the desk coughs up an access key; without it the tape you pulled is just noise.",
+         objective="Beat the dispatch memory game to earn the key, then unmask the tape.",
+         files=["dispatch_tape.txt"],
+         hints=["The tape is XOR-masked with a fixed ASCII key. The game hands you that key — but only if you keep the sequence perfect.",
+                "Watch the four tones, not the colours; one wrong note resets the whole desk.",
+                "Once you hold the key, XOR it byte-for-byte across the hex in dispatch_tape.txt."],
+         solution="Win the on-site Simon game (repeat the 8-tone sequence with no error) to reveal the 16-byte ASCII key 5IM0N-D15P4TCH-K. dispatch_tape.txt holds hex == flag XOR (key repeated); XOR the repeating key over the decoded bytes to recover the flag."),
+    dict(cid="B02", title="The Reflex Job", level="Bonus", act=BONUS_ACT,
+         location="Alarm Grid", category="Interactive game",
+         topic="Reaction game + keyed XOR", points=25, mission=27,
+         thumb="/images/jason-2.webp", game="reflex",
+         briefing="An alarm you have to outrun with reflexes alone. Hit the window tight enough and the rig prints a key; miss and it just runs again.",
+         objective="Pass the reaction test to earn the key, then decode the rig log.",
+         files=["reflex_log.txt"],
+         hints=["The log is XOR-masked; the game prints the exact key only on a clean, fast hit.",
+                "Speed matters to the millisecond — the window is unforgiving.",
+                "XOR the repeating ASCII key across the hex in reflex_log.txt."],
+         solution="Hit the reaction target in under 200 ms to print the 16-byte key R3FL3X-W1ND0W-26. reflex_log.txt hex == flag XOR (key repeated); XOR to recover the flag."),
+    dict(cid="B03", title="Captain's Log, Star Date Whatever", level="Bonus", act=BONUS_ACT,
+         location="Bridge Terminal", category="Interactive game",
+         topic="Command-parsing game + keyed XOR", points=25, mission=28,
+         thumb="/images/jason-3.webp", game="terminal",
+         briefing="The bridge terminal only listens to a captain who knows the ship. Talk it into unlocking the log and it prints the key to the manifest.",
+         objective="Issue the right commands to the in-browser terminal and decode the manifest.",
+         files=["starship_manifest.txt"],
+         hints=["Type `help` first; the terminal is honest about what it understands.",
+                "One command needs the ship's override code — it is written where a captain would keep it.",
+                "The manifest is XOR-masked with the 16-byte key the terminal prints on unlock."],
+         solution="In the on-site terminal issue: help -> scan -> unlock --code 4702 -> override warp. `override warp` prints key WARP-C0RE-K3Y-26. starship_manifest.txt hex == flag XOR (key repeated); XOR to recover."),
+    dict(cid="B04", title="Achievement Unlocked: Touched Grass", level="Bonus", act=BONUS_ACT,
+         location="The Outside", category="Interactive game",
+         topic="Patience/idle game + keyed XOR", points=25, mission=29,
+         thumb="/images/lucia-1.webp", game="idle",
+         briefing="Every gamer knows the rarest achievement there is: log off and go outside. The launcher refuses to reveal anything until you do precisely nothing for a while.",
+         objective="Earn the achievement, then decode the launcher manifest.",
+         files=["achievements.json"],
+         hints=["The rarest achievements are not earned by doing something. They are earned by not doing anything.",
+                "Any input — any click or key at all — resets the timer. Leave it alone.",
+                "The JSON is XOR-masked with the achievement string the launcher finally prints."],
+         solution="In the on-site patched-achievement gag, leave the page untouched for 30 continuous seconds (any input resets). The achievement T0UCH3D-GR4SS-26 is then revealed as the key. achievements.json hex == flag XOR (key repeated); XOR to recover."),
+    dict(cid="B05", title="Niko's Pizza Receipt", level="Bonus", act=BONUS_ACT,
+         location="Pizza This", category="Misc",
+         topic="Receipt arithmetic + keyed XOR", points=25, mission=30,
+         thumb="/images/lucia-2.webp",
+         briefing="Niko swears the pizza place skimmed him. The receipt adds up to nothing sensible and there is a blob stapled to the bottom; work out by how much he was fleeced and you can unwrap it.",
+         objective="Find the overcharge on the itemised receipt and unwrap the blob.",
+         files=["receipt.txt"],
+         hints=["Add up qty x unit price yourself; do not trust the printed TOTAL.",
+                "The overcharge is a whole number of cents, and it is the key.",
+                "XOR OVERCHARGE_BLOB with the overcharge as a 4-byte little-endian value, repeated."],
+         solution="receipt.txt lists qty x unit_price per line plus a printed TOTAL and an OVERCHARGE_BLOB (hex). The true itemised sum is 4317 cents; the printed TOTAL is 5654; the overcharge is 1337 cents. XOR the blob with the 4-byte little-endian value 1337, repeated, to recover the flag."),
+    dict(cid="B06", title="Wi-Fi Named 'FBI Surveillance Van'", level="Bonus", act=BONUS_ACT,
+         location="Los Santos Suburbs", category="Cryptography",
+         topic="Weak-passphrase WPA-style KDF + blob", points=25, mission=31,
+         thumb="/images/lucia-3.webp",
+         briefing="Someone's home Wi-Fi is literally called 'FBI Surveillance Van', which is either a joke or the worst OPSEC in Los Santos. A handshake was captured and the passphrase is presumably worse than the SSID.",
+         objective="Recover the passphrase, derive the keystream, and unwrap the captured blob.",
+         files=["handshake.hc22000", "wordlist.txt"],
+         hints=["The capture is a toy, not a real 4-way handshake: one salt plus one ciphertext blob.",
+                "The passphrase is in the supplied wordlist, and it is exactly the kind of thing this network owner would pick.",
+                "Keystream = PBKDF2-HMAC-SHA256(passphrase, salt, 60000, dklen=32); XOR it across the blob; the right passphrase yields text beginning FTA{."],
+         solution="handshake.hc22000 stores SALT=<hex> and BLOB=<hex>. For each candidate passphrase in wordlist.txt compute ks = PBKDF2-HMAC-SHA256(passphrase.encode(), salt, 60000, dklen=32) and XOR it across BLOB. The passphrase 'surveillance-van-2026' yields a plaintext starting FTA{ (the flag); every other candidate yields garbage."),
+    dict(cid="B07", title="Rick Roll Protocol", level="Bonus", act=BONUS_ACT,
+         location="The Internet", category="Cryptography",
+         topic="Lyric-keyed Vigenere + rail fence", points=25, mission=32,
+         thumb="/images/jason-1.webp",
+         briefing="A courier left a love letter that is 100 percent definitely not a rickroll. Decode it properly and it will tell you the rules, and then hand you the flag.",
+         objective="Unwind the two cipher layers and recover the flag.",
+         files=["lyrics_cipher.txt"],
+         hints=["Two layers sit here: a transposition over a substitution.",
+                "The substitution key is the exact lyric phrase everyone in Los Santos knows but refuses to type.",
+                "Undo a rail-fence of width 5 first, then Vigenere-decrypt with key 'nevergonnagiveyouup'."],
+         solution="lyrics_cipher.txt = Vigenere(rail_fence(flag, width=5), key='nevergonnagiveyouup'). Reverse the rail fence (width 5) first, then Vigenere-decrypt with key 'nevergonnagiveyouup' to recover the flag. A decoy line decodes to a fake flag if you skip the transposition."),
+    dict(cid="B08", title="404 Flag Not Found", level="Bonus", act=BONUS_ACT,
+         location="Some Server", category="Web security",
+         topic="HTTP header parsing + double base64", points=25, mission=33,
+         thumb="/images/jason-2.webp",
+         briefing="You requested a page; the server returned a joke and a wall of headers. The interesting part was never in the body.",
+         objective="Read the response like a machine, not a browser, and recover the flag.",
+         files=["raw_http_response.txt"],
+         hints=["It is a raw HTTP response, not HTML. Read the headers, not the pretty page.",
+                "A non-standard header carries the payload, and it is encoded twice.",
+                "Decode the X-Courier-Route header value as base64, then base64 again. The body's 'flag' is bait."],
+         solution="raw_http_response.txt is a raw HTTP/1.1 response. Header X-Courier-Route = base64(base64(flag)); decode it twice. The rendered body contains a decoy FTA{404_fake_page}."),
+    dict(cid="B09", title="Facebook Marketplace Rugpull", level="Bonus", act=BONUS_ACT,
+         location="Marketplace", category="OSINT",
+         topic="Listing JSON + chat-price XOR", points=25, mission=34,
+         thumb="/images/jason-3.webp",
+         briefing="A 'cheap car, no lowballers, I know what I have' listing goes sideways. The listing and the seller's own chat log disagree; the price you were actually quoted is the key.",
+         objective="Reconcile the listing with the chat and unwrap the blob.",
+         files=["listing.json", "chat_log.txt"],
+         hints=["The asking price is not the agreed price. The seller said the real number in chat.",
+                "The agreed price is a whole number of dollars and it is the key.",
+                "XOR the listing's base64 blob with the agreed price as a 4-byte little-endian value, repeated."],
+         solution="listing.json shows ask 4200 and holds COURIER_BLOB (base64 of flag XOR keystream). chat_log.txt reveals 'final price: $3699'. XOR COURIER_BLOB (after base64-decoding) with the 4-byte little-endian value 3699, repeated, to recover the flag."),
+    dict(cid="B10", title="Grand Theft Alpaca: Install Linux", level="Bonus", act=BONUS_ACT,
+         location="A Basement", category="Reverse engineering",
+         topic="Obfuscated shell script + base64", points=25, mission=35,
+         thumb="/images/lucia-1.webp",
+         briefing="To claim the alpaca you must prove you can daily-drive a Linux desktop. The so-called installer is 90 percent jokes and 10 percent payload; run the logic in your head and it hands over the flag.",
+         objective="Read the script like a machine and recover the embedded payload.",
+         files=["installer_script.sh"],
+         hints=["Most lines are jokes. Only the ones that actually pipe data matter.",
+                "The payload is handed around with echo | base64 -d, twice.",
+                "There are decoy flags in the comments. The real one decodes from the final base64 line."],
+         solution="installer_script.sh contains interleaved decoy jokes (rm -rf jokes, a fake FTA{...} comment) and a real payload: echo '<b64>' | base64 -d | base64 -d. Double-decode the final base64 line to recover the flag."),
+]
+
+# Main event (25) followed by the bonus wave (10).
+ALL = CH + BONUS
+
 
 # The H04/H05 offline notices live inside each challenge's `briefing` string, so
 # they flow once into the website card (challengeMeta.js), the participant
 # MISSION.md and the CTFd description -- no duplicate blocks.
 def description(ch):
     files_lines = "\n".join(f"- `{f}`" for f in ch["files"])
+    game_note = ""
+    if ch.get("game"):
+        game_note = (
+            "## Interactive component\n"
+            "This mission ships a browser mini-game hosted on the event site. Open the mission "
+            "card on the site to play it; the download alone is not enough to reach the key.\n\n"
+        )
     return (
         f"# {ch['cid']} · {ch['title']}\n\n"
         f"**Level:** {ch['level']} · **Points:** {ch['points']} · **Category:** {ch['category']}  \n"
@@ -333,6 +466,7 @@ def description(ch):
         f"## Objective\n{ch['objective']} Submit exactly one recovered flag to CTFd, in the form "
         f"`FTA{{...}}`. The braces and capitalization matter. Do not submit explanations.\n\n"
         f"## Evidence files\n{files_lines}\n\n"
+        f"{game_note}"
         f"## Scope and safety\n"
         f"Work only on the downloaded challenge artifacts. All targets, identities and addresses are "
         f"fictional. No scanning, account access, or attacks against a real network are required or "
@@ -344,11 +478,11 @@ def description(ch):
 # ---------------------------------------------------------------------------
 # 2. manifest.json + attachments_sha256.csv
 # ---------------------------------------------------------------------------
-def build_manifest():
-    challenges = []
-    for ch in CH:
+def _manifest_entries(chs):
+    entries = []
+    for ch in chs:
         lvl = LEVELS[ch["cid"][0]]
-        challenges.append({
+        entries.append({
             "id": ch["cid"],
             "name": f"{ch['cid']} | {ch['title']}",
             "level": ch["level"],
@@ -363,19 +497,33 @@ def build_manifest():
             "directory": f"challenges/{lvl}/{ch['cid']}",
             "solution_outline": ch["solution"],
         })
-    man = {"event": "FLAG THEFT AUTO", "challenges": challenges}
-    out = ROOT / "organizer_private" / "CTFD_IMPORT" / "manifest.json"
+    return entries
+
+
+def build_manifest():
+    out_dir = ROOT / "organizer_private" / "CTFD_IMPORT"
+    man = {"event": "FLAG THEFT AUTO", "challenges": _manifest_entries(CH)}
+    out = out_dir / "manifest.json"
     out.write_text(json.dumps(man, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print("wrote", out.relative_to(ROOT))
 
+    # Bonus wave: imported separately as HIDDEN challenges and flipped visible
+    # by reveal_bonus.py at T+60min. `state` is documented here for tooling.
+    bonus = {"event": "FLAG THEFT AUTO", "wave": "bonus",
+             "reveal_offset_minutes": 60, "state": "hidden",
+             "challenges": _manifest_entries(BONUS)}
+    bout = out_dir / "manifest_bonus.json"
+    bout.write_text(json.dumps(bonus, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    print("wrote", bout.relative_to(ROOT))
+
     rows = ["id,filename,size_bytes,sha256"]
-    for ch in CH:
+    for ch in ALL:
         lvl = LEVELS[ch["cid"][0]]
         for f in ch["files"]:
             p = SRC / lvl / ch["cid"] / f
             h = hashlib.sha256(p.read_bytes()).hexdigest()
             rows.append(f"{ch['cid']},{f},{p.stat().st_size},{h}")
-    (out.parent / "attachments_sha256.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+    (out_dir / "attachments_sha256.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
     print("wrote attachments_sha256.csv")
     return man
 
@@ -389,14 +537,16 @@ def js(s):
 
 def build_meta_js():
     blocks = []
-    for ch in CH:
+    for ch in ALL:
         key = js(f"{ch['cid']} | {ch['title']}")
+        game_line = f"    game: {js(ch['game'])},\n" if ch.get("game") else ""
         block = (
             f"  {key}: {{\n"
             f"    fta_id: {js(ch['cid'])}, level: {js(ch['level'])}, act: {js(ch['act'])},\n"
             f"    location: {js(ch['location'])}, topic: {js(ch['topic'])},\n"
             f"    missionNum: {ch['mission']}, reward: {ch['points']},\n"
             f"    thumbnail: {js(ch['thumb'])},\n"
+            f"{game_line}"
             f"    briefing: {js(ch['briefing'])},\n"
             f"    objective: {js(ch['objective'])},\n"
             f"    hints: [{', '.join(js(h) for h in ch['hints'])}],\n"
@@ -410,23 +560,29 @@ def build_meta_js():
             blocks.append(alias)
     meta = "\n".join(blocks)
 
-    arr = []
-    for i, ch in enumerate(CH, start=1):
-        arr.append(
-            "  {\n"
-            f"    id: {i}, ctfd_id: {i}, fta_id: {js(ch['cid'])}, name: {js(ch['cid'] + ' | ' + ch['title'])},\n"
-            f"    level: {js(ch['level'])}, act: {js(ch['act'])}, location: {js(ch['location'])},\n"
-            f"    category: {js(ch['category'])}, topic: {js(ch['topic'])}, value: {ch['points']}, reward: {ch['points']},\n"
-            f"    files: [{', '.join(js(f) for f in ch['files'])}], thumbnail: {js(ch['thumb'])},\n"
-            f"    briefing: {js(ch['briefing'])},\n"
-            f"    objective: {js(ch['objective'])},\n"
-            f"    hints: [{', '.join(js(h) for h in ch['hints'])}],\n"
-            "  },"
-        )
-    arr_s = "\n".join(arr)
+    def arr_entries(chs, start):
+        arr = []
+        for i, ch in enumerate(chs, start=start):
+            game_field = f", game: {js(ch['game'])}" if ch.get("game") else ""
+            arr.append(
+                "  {\n"
+                f"    id: {i}, ctfd_id: {i}, fta_id: {js(ch['cid'])}, name: {js(ch['cid'] + ' | ' + ch['title'])},\n"
+                f"    level: {js(ch['level'])}, act: {js(ch['act'])}, location: {js(ch['location'])},\n"
+                f"    category: {js(ch['category'])}, topic: {js(ch['topic'])}, value: {ch['points']}, reward: {ch['points']},\n"
+                f"    files: [{', '.join(js(f) for f in ch['files'])}], thumbnail: {js(ch['thumb'])}{game_field},\n"
+                f"    briefing: {js(ch['briefing'])},\n"
+                f"    objective: {js(ch['objective'])},\n"
+                f"    hints: [{', '.join(js(h) for h in ch['hints'])}],\n"
+                "  },"
+            )
+        return "\n".join(arr)
+
+    arr_s = arr_entries(CH, 1)
+    barr_s = arr_entries(BONUS, 26)
+
 
     body = f"""/**
- * Local metadata for all 25 challenges.
+ * Local metadata for all 25 main-event challenges plus the 10-challenge bonus wave.
  * This file contains ONLY participant-safe information:
  * challenge names, locations, descriptions visible in MISSION.md.
  * NO flags, NO solutions, NO private data.
@@ -453,8 +609,8 @@ export function normalizeName(str) {{
  * Bulletproof resolver that matches challenge metadata by:
  * 1. Direct name match
  * 2. Normalized name match (handling unicode vs ascii apostrophes)
- * 3. fta_id prefix (E01, M03, H05)
- * 4. Mission index (1-25)
+ * 3. fta_id prefix (E01, M03, H05, B07)
+ * 4. Mission index (1-35)
  */
 export function getChallengeMeta(identifier) {{
   if (!identifier) return {{}};
@@ -469,8 +625,8 @@ export function getChallengeMeta(identifier) {{
     if (normalizeName(key) === norm) return meta;
   }}
 
-  // 3. Match by fta_id prefix (e.g. "E01 | ...", "E01", or "m02")
-  const idMatch = s.match(/([EMH]\\d{{2}})/i);
+  // 3. Match by fta_id prefix (e.g. "E01 | ...", "E01", "m02", or "B07")
+  const idMatch = s.match(/([EMHB]\\d{{2}})/i);
   if (idMatch) {{
     const ftaId = idMatch[1].toUpperCase();
     for (const meta of Object.values(CHALLENGE_META)) {{
@@ -489,21 +645,32 @@ export function getChallengeMeta(identifier) {{
   return {{}};
 }}
 
-// Canonical ordered list of all 25 authentic challenges
+// Canonical ordered list of the 25 main-event challenges
 export const ALL_15_CHALLENGES = [
 {arr_s}
 ];
 
-export const LEVEL_ORDER = {{ Easy: 1, Medium: 2, Hard: 3 }};
+// Bonus wave (10 x $25) — CTFd keeps these hidden until T+60min after the
+// event begins; they surface on the board automatically once revealed.
+export const BONUS_CHALLENGES = [
+{barr_s}
+];
+
+// Minutes after event start at which the bonus wave becomes visible.
+export const BONUS_REVEAL_OFFSET_MINUTES = 60;
+
+export const LEVEL_ORDER = {{ Easy: 1, Medium: 2, Hard: 3, Bonus: 4 }};
 export const LEVEL_COLORS = {{
   Easy:   {{ border: 'rgba(57,255,20,0.4)',  text: '#39ff14', bg: 'rgba(57,255,20,0.08)' }},
   Medium: {{ border: 'rgba(255,165,0,0.4)',  text: '#ffa500', bg: 'rgba(255,165,0,0.08)' }},
   Hard:   {{ border: 'rgba(255,68,68,0.5)',  text: '#ff4444', bg: 'rgba(255,68,68,0.08)' }},
+  Bonus:  {{ border: 'rgba(0,229,255,0.5)',  text: '#00e5ff', bg: 'rgba(0,229,255,0.08)' }},
 }};
 export const ACT_INFO = {{
   'The Street Job':    {{ num: 'I',   total: '$500', count: 10 }},
   'The Big Heist':     {{ num: 'II',  total: '$800', count: 8 }},
   'The Final Getaway': {{ num: 'III', total: '$800', count: 5 }},
+  'Bonus Wave':        {{ num: 'IV',  total: '$250', count: 10 }},
 }};
 """
     out = ROOT / "frontend" / "src" / "data" / "challengeMeta.js"
@@ -516,7 +683,7 @@ export const ACT_INFO = {{
 # ---------------------------------------------------------------------------
 def sync_tree(root: Path):
     root.mkdir(parents=True, exist_ok=True)
-    for ch in CH:
+    for ch in ALL:
         lvl = LEVELS[ch["cid"][0]]
         src = SRC / lvl / ch["cid"]
         dst = root / lvl / ch["cid"]
@@ -540,11 +707,15 @@ def write_missions_md(root: Path):
     lines = ["# Mission Board (all missions are independent)", "",
              "| ID | Act | Title | Focus | Points |",
              "|---|---|---|---|---:|"]
-    for ch in CH:
+    for ch in ALL:
         lines.append(f"| {ch['cid']} | {ch['level']} | {ch['title']} | {ch['topic']} | {ch['points']} |")
     lines += ["",
               "Open each mission folder to read `MISSION.md` and access only its evidence attachments. "
-              "CTFd provides three progressive hints per mission."]
+              "CTFd provides three progressive hints per mission.",
+              "",
+              "> The `BONUS/` missions (B01-B10, $25 each) are a bonus wave revealed on the event "
+              "platform 60 minutes after the event begins; a few of them also require playing a small "
+              "browser game on the event site."]
     (root / "MISSIONS.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -564,10 +735,16 @@ def write_sha256sums(root: Path):
 # ---------------------------------------------------------------------------
 def build_answer_key():
     out = ["# PRIVATE ANSWER KEY · DO NOT DISTRIBUTE", "",
-           "**Security classification: organizer only.** Contains all 25 exact flags and reference "
-           "walkthroughs for fictional offline labs. Do not upload to CTFd attachments, GitHub, or "
-           "student shares. Correct score for each mission is listed below; total bounty $2,200.", ""]
-    for ch in CH:
+           "**Security classification: organizer only.** Contains all 25 main-event flags plus the "
+           "10 bonus-wave flags (revealed at T+60min) and reference walkthroughs for fictional offline "
+           "labs. Do not upload to CTFd attachments, GitHub, or student shares. Main-event bounty "
+           "$2,200; bonus wave $250 ($25 x 10).", ""]
+    for ch in ALL:
+        if ch["cid"] == "B01":
+            out += ["# BONUS WAVE — revealed at T+60min · $25 each", "",
+                    "Four of these (B01-B04) ship an on-site browser mini-game; the game reveals a key "
+                    "the player then applies by hand to the downloaded artefact. The remainder are "
+                    "standalone downloads.", ""]
         out += [f"## {ch['cid']} · {ch['title']} — {ch['points']} points", "",
                 f"**Category:** {ch['category']} | **Location:** {ch['location']}  ",
                 f"**Correct flag:** `{FLAGS[ch['cid']]}`  ",
@@ -575,6 +752,11 @@ def build_answer_key():
                 "### Solving procedure", "", ch["solution"], "",
                 "### Progressive hints (shown in CTFd)", ""]
         out += [f"{i}. {h}" for i, h in enumerate(ch["hints"], 1)]
+        if ch.get("bonus_hint"):
+            out += ["", "### Offline bonus hint (reward for the on-site physical task)", "",
+                    ch["bonus_hint"], "",
+                    "_Read this to the crew (or hand it over) once they complete the task. "
+                    "It is not imported into CTFd and does not deduct points._"]
         out += ["", "---", ""]
     (ROOT / "organizer_private" / "ANSWER_KEY.md").write_text("\n".join(out), encoding="utf-8")
     print("wrote ANSWER_KEY.md")
@@ -588,7 +770,7 @@ def build_matrix():
         w.writerow(["id", "name", "level", "act", "location", "category", "topic", "points",
                     "attachment_count", "attachments", "hint_count", "flag",
                     "participant_directory", "summary"])
-        for ch in CH:
+        for ch in ALL:
             lvl = LEVELS[ch["cid"][0]]
             w.writerow([ch["cid"], f"{ch['cid']} | {ch['title']}", ch["level"], ch["act"],
                         ch["location"], ch["category"], ch["topic"], ch["points"],
@@ -600,13 +782,17 @@ def build_matrix():
 def main():
     assert len(CH) == 25
     assert sum(c["points"] for c in CH) == 2200
+    assert len(BONUS) == 10
+    assert sum(c["points"] for c in BONUS) == 250
+    assert all(c.get("game") is None or c["game"] in
+               {"simon", "reflex", "terminal", "idle"} for c in BONUS)
     build_manifest()
     build_meta_js()
     for r in ROOTS:
         sync_tree(r)
     build_answer_key()
     build_matrix()
-    print("INTEGRATION DATA BUILD OK")
+    print("INTEGRATION DATA BUILD OK (25 main + 10 bonus)")
 
 
 if __name__ == "__main__":

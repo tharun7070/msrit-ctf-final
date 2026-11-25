@@ -18,23 +18,61 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach CSRF token from meta tag (CTFd sets it on login page)
-function getCsrf() {
-  const m = document.querySelector('meta[name="csrf-token"]');
-  return m ? m.getAttribute('content') : null;
+// CTFd 3.x CSRF nonce (fetched from /login or /settings HTML when needed)
+let csrfNonce = null;
+
+function extractNonce(html) {
+  if (typeof html !== 'string') return null;
+  const initMatch = html.match(/['"]csrfNonce['"]\s*:\s*['"]([^'"]+)['"]/);
+  if (initMatch) return initMatch[1];
+  const inputMatch = html.match(/name=["']nonce["'][^>]*value=["']([^"']+)["']/i)
+    || html.match(/value=["']([^"']+)["'][^>]*name=["']nonce["']/i);
+  return inputMatch ? inputMatch[1] : null;
 }
 
-api.interceptors.request.use((config) => {
-  const csrf = getCsrf();
-  if (csrf) config.headers['X-CSRFToken'] = csrf;
+async function ensureCsrf() {
+  if (csrfNonce) return csrfNonce;
+  const m = document.querySelector('meta[name="csrf-token"]');
+  if (m) {
+    csrfNonce = m.getAttribute('content');
+    return csrfNonce;
+  }
+  const { data } = await api.get('/settings', { responseType: 'text' }).catch(() => ({ data: '' }));
+  csrfNonce = extractNonce(data);
+  return csrfNonce;
+}
+
+api.interceptors.request.use(async (config) => {
+  const method = (config.method || 'get').toLowerCase();
+  if (['post', 'put', 'patch', 'delete'].includes(method) && config.url?.startsWith('/api/')) {
+    const nonce = await ensureCsrf();
+    if (nonce) config.headers['CSRF-Token'] = nonce;
+  }
   return config;
 });
 
 // ── Auth ───────────────────────────────────────────────────────────────
 export async function login(name, password) {
-  // CTFd 3.x uses /api/v1/auth/login for SPA-style JSON login
-  const { data } = await api.post('/api/v1/auth/login', { name, password });
-  return data;
+  // CTFd 3.x authenticates via form POST /login with a CSRF nonce.
+  const page = await api.get('/login', { responseType: 'text' });
+  const nonce = extractNonce(page.data);
+  if (!nonce) {
+    throw new Error('Could not initialize login session. Please refresh and try again.');
+  }
+
+  const body = new URLSearchParams({ name, password, nonce, _submit: 'Submit' });
+  const res = await api.post('/login', body.toString(), {
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  });
+
+  if (typeof res.data === 'string' && res.data.includes('Your username or password is incorrect')) {
+    throw new Error('Invalid operative ID or access code.');
+  }
+
+  // Refresh CSRF nonce for authenticated /api/v1/* calls
+  csrfNonce = null;
+  await ensureCsrf();
+  return { success: true };
 }
 
 export async function register({ name, email, password }) {
@@ -43,6 +81,7 @@ export async function register({ name, email, password }) {
 }
 
 export async function logout() {
+  csrfNonce = null;
   await api.get('/logout');
 }
 

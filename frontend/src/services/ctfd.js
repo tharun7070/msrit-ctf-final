@@ -61,7 +61,7 @@ export async function login(name, password) {
   }
 
   const body = new URLSearchParams({ name, password, nonce, _submit: 'Submit' });
-  const res = await api.post('/login', body.toString(), {
+  const res = await api.post('/login?next=/settings', body.toString(), {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
 
@@ -69,9 +69,9 @@ export async function login(name, password) {
     throw new Error('Invalid operative ID or access code.');
   }
 
-  // Refresh CSRF nonce for authenticated /api/v1/* calls
-  csrfNonce = null;
-  await ensureCsrf();
+  // Extract CSRF nonce from the redirected /settings page (or fetch /settings)
+  csrfNonce = extractNonce(res.data);
+  if (!csrfNonce) await ensureCsrf();
   return { success: true };
 }
 
@@ -88,6 +88,9 @@ export async function logout() {
 // ── Current user ───────────────────────────────────────────────────────
 export async function getMe() {
   const { data } = await api.get('/api/v1/users/me');
+  if (!data || typeof data !== 'object' || !data.data) {
+    throw new Error('Not authenticated');
+  }
   return data.data;
 }
 

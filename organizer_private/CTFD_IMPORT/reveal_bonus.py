@@ -86,7 +86,7 @@ def run(args,session=None):
   wait_until(reveal_at)
  session=session or requests.Session()
  session.headers.update({'Authorization':'Token '+token})
- existing=req(session,url,'GET','/api/v1/challenges')
+ existing=req(session,url,'GET','/api/v1/challenges?view=admin')
  by_name={e['name']:e for e in existing if isinstance(e,dict) and e.get('name')}
  revealed=0;missing=[]
  for ch in bonus:

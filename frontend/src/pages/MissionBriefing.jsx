@@ -215,7 +215,8 @@ export default function MissionBriefing() {
     setResultMessage('');
 
     try {
-      const resp = await submitFlag(id, flag.trim());
+      const challengeId = challenge?.ctfd_id || challenge?.id || id;
+      const resp = await submitFlag(challengeId, flag.trim());
       const status = resp?.data?.status;
       const message = resp?.data?.message || '';
 

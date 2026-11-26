@@ -124,14 +124,14 @@ def run(args,session=None):
  print('Checking admin connection...')
  existing_teams={t.get('name') for t in req(session,url,'GET','/api/v1/teams') if isinstance(t,dict)}
  existing_users={u.get('name') for u in req(session,url,'GET','/api/v1/users') if isinstance(u,dict)}
- clash=[t for t in teams if t in existing_teams]+[r['name'] for r in plan if r['name'] in existing_users]
- if clash:raise APIError(f'{len(clash)} team/user name(s) already exist; provision on a fresh board or rename')
- team_ids={}
- for team,password in teams.items():
+ new_teams={t:p for t,p in teams.items() if t not in existing_teams}
+ new_plan=[r for r in plan if r['name'] not in existing_users]
+ team_ids={t.get('name'):t.get('id') for t in req(session,url,'GET','/api/v1/teams') if isinstance(t,dict)}
+ for team,password in new_teams.items():
   data=req(session,url,'POST','/api/v1/teams',json={'name':team,'password':password})
   team_ids[team]=data['id']
   print(f'[OK] team {team} created')
- for row in plan:
+ for row in new_plan:
   req(session,url,'POST','/api/v1/users',json={
    'name':row['name'],'email':row['email'],'password':row['password'],
    'type':'user','verified':True,'hidden':False,'banned':False,'team_id':team_ids[row['team']],
